@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Loom Lingo",
+    "slug": "loom-lingo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "loomlingo",
+    "android": {
+      "package": "com.loomlingo.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B3B60"
+      }
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-sharing",
+        {
+          "android": {
+            "enabled": true,
+            "singleShareMimeTypes": ["text/plain"]
+          }
+        }
+      ],
+      "expo-status-bar"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4cc54627-093d-4a7f-bd5f-8e47592e92c6"
+      }
+    }
+  }
+}

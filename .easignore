@@ -1,0 +1,29 @@
+# EAS Build uses this file instead of .gitignore when uploading the project.
+# It mirrors .gitignore, except that `.env` IS uploaded so that
+# EXPO_PUBLIC_GEMINI_API_KEY is bundled into the APK.
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+android/
+ios/
+*.apk
+*.aab
+*.ipa
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+coverage/
+*.tsbuildinfo
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.git/
+old_chat.md
