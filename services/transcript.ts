@@ -1,5 +1,5 @@
-import { TimestampedParagraph, UserFacingError } from "../types";
-import { CaptionLine, groupCaptionLines } from "../utils/captions";
+import { Cue, UserFacingError } from "../types";
+import { CaptionLine, groupCaptionLines } from "../utils/cues";
 
 /**
  * Everything that talks to YouTube directly lives in this file, so a YouTube
@@ -25,7 +25,7 @@ export type VideoInfo = {
   status: "ok" | "unavailable" | "restricted" | "unknown";
   captionTracks: CaptionTrack[];
 };
-export type CaptionTranscript = { languageCode: string; automatic: boolean; paragraphs: TimestampedParagraph[] };
+export type CaptionTranscript = { languageCode: string; automatic: boolean; cues: Cue[] };
 
 type PlayerResponse = {
   playabilityStatus?: { status?: string };
@@ -35,7 +35,7 @@ type PlayerResponse = {
 
 async function request(url: string, init?: RequestInit): Promise<Response> {
   try { return await fetch(url, init); }
-  catch { throw new UserFacingError("İnternet bağlantısı yok. Bağlantınızı kontrol edip tekrar deneyin."); }
+  catch { throw new UserFacingError("İnternet bağlantısı yok. Bağlantınızı kontrol edip tekrar deneyin.", "network"); }
 }
 
 /** Public metadata from oEmbed; used when the player endpoint gives no title. */
@@ -93,6 +93,6 @@ export async function getCaptionTranscript(info: VideoInfo): Promise<CaptionTran
   const lines: CaptionLine[] = (data.events ?? [])
     .filter(e => e.segs && !e.aAppend)
     .map(e => ({ startMs: e.tStartMs ?? 0, durationMs: e.dDurationMs ?? 0, text: (e.segs ?? []).map(s => s.utf8 ?? "").join("") }));
-  const paragraphs = groupCaptionLines(lines);
-  return paragraphs.length ? { languageCode: track.languageCode, automatic: track.automatic, paragraphs } : null;
+  const cues = groupCaptionLines(lines);
+  return cues.length ? { languageCode: track.languageCode, automatic: track.automatic, cues } : null;
 }

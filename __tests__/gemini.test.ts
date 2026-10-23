@@ -23,7 +23,7 @@ test("moves to the next model when the daily quota is used up", async () => {
 
 test("shows the daily limit message when every model is used up", async () => {
   fetchMock.mockResolvedValue(dailyQuota);
-  await expect(generateJson(options, [{ text: "x" }], {})).rejects.toEqual(new UserFacingError("Bugünkü ücretsiz çeviri limiti doldu. Yarın tekrar deneyin."));
+  await expect(generateJson(options, [{ text: "x" }], {})).rejects.toEqual(new UserFacingError("Bugünkü ücretsiz çeviri hakkı doldu.", "quota"));
   expect(fetchMock).toHaveBeenCalledTimes(MODELS.length);
 });
 
@@ -47,4 +47,12 @@ test("stops at once for an invalid key", async () => {
 test("reports a missing connection", async () => {
   fetchMock.mockRejectedValue(new TypeError("Network request failed"));
   await expect(generateJson(options, [{ text: "x" }], {})).rejects.toThrow(/İnternet bağlantısı yok/);
+});
+
+test("records a used-up model with Google's limit and skips models known to be used up", async () => {
+  const onDailyQuota = jest.fn();
+  fetchMock.mockResolvedValueOnce(json(429, { error: { details: [{ violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier", quotaValue: "250" }] }] } })).mockResolvedValueOnce(answer({ ok: 4 }));
+  await expect(generateJson({ ...options, onDailyQuota, isExhausted: m => m === MODELS[0] }, [{ text: "x" }], {})).resolves.toEqual({ ok: 4 });
+  expect(fetchMock.mock.calls.map(c => c[0])).toEqual([expect.stringContaining(MODELS[1]), expect.stringContaining(MODELS[2])]);
+  expect(onDailyQuota).toHaveBeenCalledWith(MODELS[1], 250);
 });

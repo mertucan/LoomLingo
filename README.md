@@ -1,6 +1,6 @@
 # Loom Lingo
 
-A personal-use Android app that turns the speech in a YouTube video into readable Turkish text. You paste a link, or share a video from the YouTube app. It was built for one older user who watches textile-machine training videos (sewing, overlock, embroidery, weaving, knitting) in English, Hindi, Bengali and other languages. The interface is in Turkish, uses large high-contrast text, and has as few screens as possible.
+A personal-use Android app for watching YouTube videos in Turkish. You paste a link, or share a video from the YouTube app. The app translates the speech, then plays the video with **large Turkish subtitles** and a **Turkish voice-over** that stays in sync with the picture. It was built for one older user who watches textile-machine training videos (sewing, overlock, embroidery, weaving, knitting) in English, Hindi, Bengali and other languages. The interface is in Turkish, uses large high-contrast text, and has as few screens as possible.
 
 - **Free to run.** Gemini's free API tier, no backend, no paid services.
 - **Stack:** Expo SDK 57, React Native 0.86 and TypeScript. Android only. Installed as an APK built with EAS Build, not published on Google Play.
@@ -8,17 +8,38 @@ A personal-use Android app that turns the speech in a YouTube video into readabl
 ## How it works
 
 ```
-link ─► local history (cache) ─► YouTube captions ─► Gemini text translation ─► result
-                                     │ none / unusable
-                                     └────────────► Gemini video input (URL) ─► result
+link ─► local history (cache) ─► YouTube captions ─► Gemini text translation ─┐
+                                     │ none / unusable                        ├─► timed Turkish cues
+                                     └────────────► Gemini video input (URL) ─┘          │
+                                                                                         ▼
+                     Watch screen: YouTube player + large subtitle box + Turkish voice (elastic sync)
 ```
 
 1. **Cache first.** A video that was already translated opens from the phone's history. No internet or API quota is used.
-2. **Captions path (fast, cheap).** [services/transcript.ts](services/transcript.ts) reads the video's caption track list. It prefers a human Turkish track, then a human track in the spoken language, then any human track, then the automatic track. Caption lines are grouped into timestamped paragraphs and translated by Gemini in batches ([services/translate.ts](services/translate.ts)). Turkish tracks are shown as they are, without translation. Tracks with too little text (fewer than 60 characters per minute) are treated as unusable. A typical case is an English auto-caption on a Bengali video.
-3. **Gemini video path (fallback).** [services/geminiVideo.ts](services/geminiVideo.ts) passes the public YouTube URL straight to Gemini. Gemini listens to the audio, looks at the frames, and returns the original speech and its Turkish translation with timestamps. Videos longer than 20 minutes are processed in 10-minute sections using `video_metadata` offsets, with progress shown as "Bölüm 2/3 çevriliyor…".
-4. **Errors.** Every failure is shown in plain Turkish with a **Tekrar Dene** (retry) button. Failures covered: no internet, invalid link, video missing or not accessible, invalid or missing key, daily limit reached, and service busy.
+2. **Captions path (fast, cheap).** [services/transcript.ts](services/transcript.ts) reads the video's caption track list. It prefers a human Turkish track, then a human track in the spoken language, then any human track, then the automatic track. Caption lines are grouped into sentence-sized **cues** with start and end times, then translated by Gemini in batches ([services/translate.ts](services/translate.ts)). Turkish tracks are shown as they are, without translation. Tracks with too little text (fewer than 60 characters per minute) are treated as unusable. A typical case is an English auto-caption on a Bengali video.
+3. **Gemini video path (fallback).** [services/geminiVideo.ts](services/geminiVideo.ts) passes the public YouTube URL straight to Gemini. Gemini listens to the audio, looks at the frames, and returns timed cues with the original speech and its Turkish translation. Timestamps are requested as `MM:SS`: asked for plain seconds, Gemini sometimes wrote 5:26 as 526. Cues longer than 9 seconds are split at word boundaries for the subtitle box. Videos longer than 20 minutes are processed in 10-minute sections using `video_metadata` offsets, with progress shown as "Bölüm 2/3 çevriliyor…".
+4. **Watch screen** ([screens/WatchScreen.tsx](screens/WatchScreen.tsx)). The official YouTube player is embedded with `react-native-youtube-iframe`. Below it, a large dark box shows the current Turkish line; the text size follows A−/A+. The original sound is muted while the Turkish voice is on, and comes back when the voice is switched off. Playback is started by tapping the video itself: YouTube's embedded player does not reliably start from a call that did not come from a tap inside it.
+   - **Büyük Ekran** turns the phone sideways (`expo-screen-orientation`). The video then fills the screen and the subtitle is drawn over its lower part. The player stays mounted, so the video does not restart. The Android back button returns to the normal view first; elsewhere it goes back a screen instead of closing the app.
+   - Known limit: on some phones the original sound still plays after the video is started by a tap. YouTube's embedded player can ignore its mute and volume API there, and the app cannot reach the video element inside YouTube's iframe. The app re-applies mute and volume 0 every second while the voice is on.
+5. **Turkish voice and elastic sync** ([services/dubController.ts](services/dubController.ts)). Each cue is spoken when it starts. Because Turkish is often longer than the source:
+   - the voice may use the time until the next cue begins;
+   - it uses a shorter "spoken" version from Gemini when the full line would not fit;
+   - it speeds up to at most 1.25×;
+   - if it still runs over, **the video pauses briefly** until the sentence ends.
+
+   Voice and picture never drift apart. In tests with real videos, the pauses added 1–5 % to the running time.
+6. **Errors.** Every failure is shown in plain Turkish with a **Tekrar Dene** (retry) button. Failures covered: no internet, invalid link, video missing or not accessible, invalid or missing key, daily limit reached, and service busy.
 
 [services/pipeline.ts](services/pipeline.ts) wires these steps together. [services/gemini.ts](services/gemini.ts) holds the shared Gemini client and the textile-domain system instruction, which also carries the user's glossary.
+
+### Turkish voices
+
+| Voice | How | Size | Notes |
+| --- | --- | --- | --- |
+| Phone voice (default) | Android text-to-speech via `expo-speech` | – | Ready immediately, offline; somewhat robotic. Works in Expo Go. |
+| Natural voices: Fahrettin, Fettah, Dfki | [Piper](https://github.com/rhasspy/piper) models running on the phone via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (`react-native-sherpa-onnx`) | 21 MB each, downloaded once from Settings | Offline, more natural. APK only. |
+
+The natural voices use the **int8** builds from the sherpa-onnx `tts-models` release, because the fp16 builds failed to load in sherpa-onnx 1.12. Measured on a PC, they speak 16–18 characters per second and generate at 0.3–0.5× real time. Sentences are generated a few cues ahead and cached as WAV files per video. If a clip is not ready in time, the video waits ("Türkçe ses hazırlanıyor…").
 
 ### Why these methods (checked October 2026)
 
@@ -30,6 +51,9 @@ link ─► local history (cache) ─► YouTube captions ─► Gemini text tra
 | Innertube `youtubei/v1/player` with the Android client | Returns title, length and caption tracks; the track URLs download normally. | **Used**, isolated in one file. |
 | YouTube's own auto-translation (`tlang=tr`) | Works, but quality on textile terms is weak and it ignores the glossary. | Not used; Gemini translates instead. |
 | Gemini YouTube URL input | Documented ([video understanding](https://ai.google.dev/gemini-api/docs/video-understanding)); public videos only; clipping offsets supported. | **Used** as the fallback. |
+| Downloading the video and burning in subtitles or audio | Against YouTube's terms, needs large files and a PC-class tool chain. | Not used; the official player is embedded instead. |
+| Voice cloning or desktop dubbing tools (XTTS, VideoLingo, pyVideoTrans) | Need a GPU or PC. | Not used. |
+| Gemini TTS | Low free quota; one request per sentence would use it up quickly. | Not used. |
 
 Tested end to end with real videos:
 - Hindi auto-captions, translated via the captions path in about 16 seconds with one request.
@@ -44,14 +68,27 @@ Free-tier facts from Google's documentation (subject to change):
 - **Private and unlisted videos are not supported** by the video path. Unlisted videos still work through the captions path.
 - Per-model request limits are shown in [Google AI Studio](https://aistudio.google.com/) under *Usage / Rate limits*.
 
-**Settings** shows an approximate count of today's requests ("Bugün yaklaşık X işlem kullanıldı"). This is the app's own count, not Google's authoritative number. With 5–10 short videos a day, the captions path usually needs only one or two requests per video.
+### Usage bar and warnings
+
+The home screen and Settings show a **"Bugünkü çeviri hakkı"** bar: the share of today's free quota that is left, and roughly how many more videos can be translated. The bar turns orange at 60 % used and red at 85 %.
+
+Behind the bar ([utils/quota.ts](utils/quota.ts), [services/quota.ts](services/quota.ts)):
+- Requests are counted per model per **quota day**. Google resets free quotas at midnight Pacific time, which is 10:00 or 11:00 in Turkey; US summer time is handled.
+- Google does not publish free-tier request limits; they are shown per project in AI Studio. The app assumes 20 requests per model per day until a quota error reveals the real limit (`quotaValue`). It then stores that limit.
+- A model that hit its daily limit is skipped until the reset.
+
+Warnings:
+- When the quota is used up, the app explains when it resets ("yarın saat 10:00") and points to History, which works without quota.
+- Before a translation that may use up most of what is left, or a video over an hour long, the app asks for confirmation.
+
+A typical day of 5–10 short videos (about 30 minutes) needs about 5–15 requests. Re-watching a video uses none.
 
 ## Project structure
 
 ```
 App.tsx                  screen switching + share-intent handling
-screens/                 HomeScreen, ResultScreen, HistoryScreen, SettingsScreen
-components/              Button, ProgressCard, ErrorCard
+screens/                 HomeScreen, WatchScreen, ResultScreen (reading), HistoryScreen, SettingsScreen
+components/              Button, ProgressCard, ErrorCard, UsageBar, theme
 hooks/useShareIntent.ts  receives links shared from the YouTube app (APK only)
 services/
   pipeline.ts            cache → captions → Gemini video
@@ -59,10 +96,12 @@ services/
   gemini.ts              Gemini client, model fallback, retries, system prompt
   translate.ts           caption translation in batches
   geminiVideo.ts         Gemini YouTube-URL path, long-video sections
+  dubController.ts       keeps the Turkish voice in step with the video (elastic sync)
+  voices.ts              phone voice + Piper voices (download, generate, play)
+  quota.ts               per-model daily usage for the usage bar
   cache.ts               history / cache (AsyncStorage)
   settings.ts            settings, API key (.env or SecureStore)
-  usage.ts               approximate daily request counter
-utils/                   link parsing, caption grouping, text chunking, language names
+utils/                   link parsing, cues and speech planning, quota day maths, text chunking, language names
 __tests__/               unit tests
 ```
 
@@ -113,7 +152,12 @@ How the key is handled:
 
 4. Scan the QR code with Expo Go.
 
-Pasting a link and translating it works in Expo Go. **Receiving a share from the YouTube app does not work in Expo Go**; it needs the APK.
+These work in Expo Go:
+- pasting a link, translating, and watching with subtitles and the phone voice.
+
+These need the APK:
+- **receiving a share from the YouTube app**;
+- the **natural (Piper) voices**.
 
 ## Build the APK with EAS (free account)
 
@@ -128,6 +172,10 @@ Pasting a link and translating it works in Expo Go. **Receiving a share from the
    - On the first build, answer **Y** to *Generate a new Android Keystore?*. Expo stores the signing key and reuses it for updates.
    - The free tier queues builds; a build usually takes 10–20 minutes.
 
+   - **APK size.** `expo-build-properties` in `app.json` builds only for `arm64-v8a`, which every Android phone sold since about 2017 uses. It also stores native libraries compressed (`useLegacyPackaging`).
+     - Without these settings the APK was 221 MB: four CPU architectures, each with its own copy of onnxruntime for the natural voices.
+     - If a very old 32-bit phone reports the app as incompatible, add `"armeabi-v7a"` to `buildArchs`.
+
 3. When the build finishes, EAS prints a link. The same build also appears on expo.dev under *Projects → loom-lingo → Builds*.
 
 ### Install the APK on the phone
@@ -138,7 +186,11 @@ Pasting a link and translating it works in Expo Go. **Receiving a share from the
 4. If Play Protect asks, choose **Yine de yükle**. The app is unknown to Google because it is not on Google Play.
 5. Open **Loom Lingo**. To translate a video, either:
    - in YouTube, tap **Paylaş → Loom Lingo** on a video, and translation starts automatically; or
-   - paste a link on the home screen and tap **Türkçeye Çevir**.
+   - copy the link in YouTube, then tap **Linki Yapıştır ve Başla** on the home screen.
+
+   When the translation is ready, the watch screen opens. Tap **Oynat**.
+6. Optional: in **Ayarlar → Türkçe Ses**, pick a natural voice (21 MB download, Wi-Fi recommended) and tap **Örnek Dinle** to hear it.
+7. If the phone voice is silent, the phone has no Turkish text-to-speech voice. On Android, open *Settings → System → Language → Text-to-speech output*, then install Turkish for Google's speech engine. Alternatively, pick a natural voice.
 
 To update the app later, build again and install the new APK over the old one. History and settings are kept.
 
@@ -155,7 +207,18 @@ The unit tests cover:
 - sentence-aware chunking and paragraph batching
 - caption-line grouping and caption track choice
 - long-video section planning
-- Gemini model fallback, rate-limit waiting, and invalid-key and offline errors
+- cue building, `MM:SS` parsing, long-cue splitting, and speech planning (short version and speed-up)
+- the elastic-sync controller:
+  - speaking on cue;
+  - pausing the video while a sentence finishes;
+  - waiting for a clip that is still generating;
+  - seeking, voice off, and the user pressing pause
+- quota-day maths, including US summer time, and the usage bar's levels
+- Gemini:
+  - model fallback;
+  - learning daily limits;
+  - rate-limit waiting;
+  - invalid-key and offline errors
 
 ## Maintenance notes
 
@@ -173,6 +236,27 @@ The app keeps working in the meantime through the Gemini video path.
   ```powershell
   curl "https://generativelanguage.googleapis.com/v1beta/models" -H "x-goog-api-key: YOUR_KEY"
   ```
+
+**Video does not play inside the app:**
+- Some channels disable embedding. The app then offers *YouTube'da Aç* and *Metni Oku*.
+- If no video plays at all, YouTube may have changed its embed rules. Update `react-native-youtube-iframe`, or set its `baseUrlOverride`.
+
+**Natural voice problems:**
+- The model URLs are in `PIPER_VOICES` / `archiveUrl` in [services/voices.ts](services/voices.ts).
+- `react-native-sherpa-onnx` is pinned to a fixed version. Its bundled sherpa-onnx (1.12.x) still reads Piper's `espeak-ng-data`.
+- sherpa-onnx 2.0 dropped that and needs an external phonemizer. Do not upgrade without testing.
+- `@dr.pogodin/react-native-fs` (a peer of sherpa-onnx) is pinned to 2.40.4. Version 2.41.0 uses `ArrayBuffer` in its native spec, which React Native 0.86's codegen rejects, and the Gradle build fails.
+- Before spending an EAS build on a native dependency change, check every package's spec locally:
+
+  ```powershell
+  node node_modules/@react-native/codegen/lib/cli/combine/combine-js-to-schema-cli.js out.json --platform android node_modules/<package>/src
+  ```
+
+**Videos pause too often:**
+- Choose **Hızlı** (fast) speech in Settings, or a natural voice; they speak faster than the phone voice.
+- `MAX_SPEECH_RATE` in [utils/cues.ts](utils/cues.ts) caps the speed-up.
+
+**App icon:** `assets/icon.png` and `assets/adaptive-icon.png` (artwork inside the adaptive-icon safe zone on a `#0B3B60` background). They show a speech bubble with a threaded sewing needle and a "TR" badge.
 
 **Glossary:** Settings → *Terim Sözlüğü*. Every entry is added to the system instruction of every Gemini request.
 

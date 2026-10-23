@@ -1,4 +1,5 @@
-import { TimestampedParagraph, UserFacingError } from "../types";
+import { Cue, UserFacingError } from "../types";
+import { normalizeCues, parseTimestamp, splitLongCues } from "../utils/cues";
 import { planVideoSegments } from "../utils/textChunks";
 import { GeminiOptions, generateJson, Part } from "./gemini";
 
@@ -11,36 +12,48 @@ import { GeminiOptions, generateJson, Part } from "./gemini";
  * - `video_metadata` start/end offsets process only part of a video, which is
  *   how long videos are split into sections here.
  */
-type VideoAnswer = { sourceLanguage: string; paragraphs: TimestampedParagraph[] };
+type VideoCue = Omit<Cue, "start" | "end"> & { start: string; end: string };
+type VideoAnswer = { sourceLanguage: string; cues: VideoCue[] };
 const SCHEMA = {
   type: "object",
   properties: {
     sourceLanguage: { type: "string" },
-    paragraphs: {
+    cues: {
       type: "array",
-      items: { type: "object", properties: { startSeconds: { type: "integer" }, original: { type: "string" }, turkish: { type: "string" } }, required: ["startSeconds", "original", "turkish"] },
+      items: {
+        type: "object",
+        properties: { start: { type: "string" }, end: { type: "string" }, original: { type: "string" }, turkish: { type: "string" }, spoken: { type: "string" } },
+        required: ["start", "end", "original", "turkish"],
+      },
     },
   },
-  required: ["sourceLanguage", "paragraphs"],
+  required: ["sourceLanguage", "cues"],
 };
-const PROMPT = `Videodaki konuşmayı dinle, gerektiğinde görüntüyü de incele. Konuşmayı 1-4 cümlelik paragraflara böl. Her paragraf için: startSeconds = paragrafın başladığı an (videonun başından itibaren saniye), original = konuşmanın orijinal dilindeki yazımı, turkish = Türkçe çevirisi. Konuşma yoksa paragraphs boş olsun.`;
+const PROMPT = `Videodaki konuşmayı dinle, gerektiğinde görüntüyü de incele ve altyazı satırları oluştur. Her satır tek bir cümle ya da cümle parçası olsun ve en fazla 8 saniye sürsün; uzun cümleleri böl. Her satır için:
+- start, end: satırın konuşulduğu zaman aralığı, videonun başından itibaren MM:SS biçiminde (ör. "01:05" = 1 dakika 5 saniye; bir saati aşan videoda H:MM:SS). Zamanları konuşmaya olabildiğince tam denk getir.
+- original: konuşmanın orijinal dilindeki yazımı.
+- turkish: doğal ve eksiksiz Türkçe çevirisi.
+- spoken: turkish metni satırın süresinde rahatça okunamayacak kadar uzunsa (saniye başına 14 karakterden fazla) doldur; aynı anlamı veren, sesli okunacak kısa Türkçe sürüm. Teknik terimleri ve sayıları koru. Kısaysa boş bırak.
+Konuşma yoksa cues boş olsun.`;
 
-export async function translateYoutubeVideo(options: GeminiOptions, url: string, lengthSeconds: number | null, onProgress: (message: string) => void): Promise<VideoAnswer> {
-  const segments = planVideoSegments(lengthSeconds);
-  const video = (start?: number, end?: number): Part => ({ file_data: { file_uri: url }, ...(start !== undefined && end !== undefined ? { video_metadata: { start_offset: `${start}s`, end_offset: `${end}s` } } : {}) });
-  const valid = (value: VideoAnswer) => Array.isArray(value.paragraphs);
-  if (!segments) {
-    onProgress("Video dinleniyor ve Türkçeye çevriliyor… Bu birkaç dakika sürebilir.");
-    const answer = await generateJson<VideoAnswer>(options, [video(), { text: PROMPT }], SCHEMA, valid);
-    if (!answer.paragraphs.length) throw new UserFacingError("Bu videoda çevrilecek bir konuşma bulunamadı.");
-    return answer;
-  }
-  const paragraphs: TimestampedParagraph[] = []; let sourceLanguage = "";
+const mmss = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+
+/** Number of Gemini requests the video path will take (for the usage warning). */
+export const videoRequestCount = (lengthSeconds: number | null) => planVideoSegments(lengthSeconds)?.length ?? 1;
+
+export async function translateYoutubeVideo(options: GeminiOptions, url: string, lengthSeconds: number | null, onProgress: (message: string) => void): Promise<{ sourceLanguage: string; cues: Cue[] }> {
+  const segments = planVideoSegments(lengthSeconds) ?? [null];
+  const valid = (value: VideoAnswer) => Array.isArray(value.cues);
+  const cues: Cue[] = []; let sourceLanguage = "";
   for (const [index, segment] of segments.entries()) {
-    onProgress(`Bölüm ${index + 1}/${segments.length} çevriliyor…`);
-    const answer = await generateJson<VideoAnswer>(options, [video(segment.startSeconds, segment.endSeconds), { text: `${PROMPT}\nYalnızca ${segment.startSeconds}. saniye ile ${segment.endSeconds}. saniye arasını işle.` }], SCHEMA, valid);
-    paragraphs.push(...answer.paragraphs); sourceLanguage ||= answer.sourceLanguage;
+    onProgress(segments.length > 1 ? `Bölüm ${index + 1}/${segments.length} çevriliyor…` : "Video dinleniyor ve Türkçeye çevriliyor… Bu birkaç dakika sürebilir.");
+    const video: Part = { file_data: { file_uri: url }, ...(segment ? { video_metadata: { start_offset: `${segment.startSeconds}s`, end_offset: `${segment.endSeconds}s` } } : {}) };
+    const text = segment ? `${PROMPT}\nYalnızca ${mmss(segment.startSeconds)} ile ${mmss(segment.endSeconds)} arasını işle; zamanlar yine videonun başından itibaren olsun.` : PROMPT;
+    const answer = await generateJson<VideoAnswer>(options, [video, { text }], SCHEMA, valid);
+    cues.push(...answer.cues.map(c => ({ ...c, start: parseTimestamp(c.start), end: parseTimestamp(c.end), spoken: c.spoken?.trim() || undefined }))
+      .filter(c => Number.isFinite(c.start) && (!lengthSeconds || c.start < lengthSeconds + 2)));
+    sourceLanguage ||= answer.sourceLanguage;
   }
-  if (!paragraphs.length) throw new UserFacingError("Bu videoda çevrilecek bir konuşma bulunamadı.");
-  return { sourceLanguage, paragraphs };
+  if (!cues.length) throw new UserFacingError("Bu videoda çevrilecek bir konuşma bulunamadı.", "video");
+  return { sourceLanguage, cues: splitLongCues(normalizeCues(cues, lengthSeconds)) };
 }

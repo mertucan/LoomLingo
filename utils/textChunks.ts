@@ -1,5 +1,3 @@
-import { TimestampedParagraph } from "../types";
-
 /** Keeps sentences together where possible, never exceeds max characters. */
 export function splitTextIntoChunks(text: string, maxChars = 7000): string[] {
   const clean = text.replace(/\s+/g, " ").trim();
@@ -17,12 +15,12 @@ export function splitTextIntoChunks(text: string, maxChars = 7000): string[] {
   if (current) chunks.push(current.trim()); return chunks;
 }
 
-/** Groups paragraphs into translation requests without splitting a paragraph. */
-export function batchParagraphs(paragraphs: TimestampedParagraph[], maxChars = 6000): TimestampedParagraph[][] {
-  const batches: TimestampedParagraph[][] = []; let current: TimestampedParagraph[] = []; let size = 0;
-  for (const paragraph of paragraphs) {
-    if (current.length && size + paragraph.original.length > maxChars) { batches.push(current); current = []; size = 0; }
-    current.push(paragraph); size += paragraph.original.length;
+/** Groups items into translation requests by their `original` text length, without splitting an item. */
+export function batchByLength<T extends { original: string }>(items: T[], maxChars = 6000): T[][] {
+  const batches: T[][] = []; let current: T[] = []; let size = 0;
+  for (const item of items) {
+    if (current.length && size + item.original.length > maxChars) { batches.push(current); current = []; size = 0; }
+    current.push(item); size += item.original.length;
   }
   if (current.length) batches.push(current); return batches;
 }

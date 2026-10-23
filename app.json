@@ -3,12 +3,13 @@
     "name": "Loom Lingo",
     "slug": "loom-lingo",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "userInterfaceStyle": "light",
     "scheme": "loomlingo",
     "android": {
       "package": "com.loomlingo.app",
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B3B60"
       }
     },
@@ -19,16 +20,38 @@
         {
           "android": {
             "enabled": true,
-            "singleShareMimeTypes": ["text/plain"]
+            "singleShareMimeTypes": [
+              "text/plain"
+            ]
           }
         }
       ],
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-audio",
+        {
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "expo-asset",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildArchs": [
+              "arm64-v8a"
+            ],
+            "useLegacyPackaging": true
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {
         "projectId": "4cc54627-093d-4a7f-bd5f-8e47592e92c6"
       }
-    }
+    },
+    "icon": "./assets/icon.png"
   }
 }

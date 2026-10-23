@@ -1,4 +1,4 @@
-import { GlossaryEntry, UserFacingError } from "../types";
+import { ErrorCode, GlossaryEntry, UserFacingError } from "../types";
 
 /**
  * Tried in order. A model whose free daily quota is used up is skipped and the
@@ -26,18 +26,22 @@ export function glossaryPrompt(glossary: GlossaryEntry[]): string {
 
 export type GeminiOptions = {
   apiKey: string; glossary: GlossaryEntry[];
-  /** Called once per HTTP request, for the approximate daily usage counter. */
-  onRequest?: () => void | Promise<void>;
+  /** Called once per HTTP request, for the daily usage bar. */
+  onRequest?: (model: string) => void | Promise<void>;
+  /** Called when a model's free daily quota is used up; `limit` is Google's number when the error states it. */
+  onDailyQuota?: (model: string, limit?: number) => void | Promise<void>;
+  /** Models already known to be used up today are skipped without a request. */
+  isExhausted?: (model: string) => boolean;
   /** Called before waiting out a per-minute rate limit. */
   onWait?: (seconds: number) => void;
 };
 export type Part = { text: string } | { file_data: { file_uri: string }; video_metadata?: { start_offset: string; end_offset: string } };
 
 type Failure = "daily-quota" | "rate-limit" | "key" | "video" | "server" | "bad-response" | "network";
-class GeminiFailure extends Error { constructor(public readonly kind: Failure, public readonly retryAfter = 0) { super(kind); } }
+class GeminiFailure extends Error { constructor(public readonly kind: Failure, public readonly retryAfter = 0, public readonly limit?: number) { super(kind); } }
 
 const MESSAGES: Record<Failure, string> = {
-  "daily-quota": "Bugünkü ücretsiz çeviri limiti doldu. Yarın tekrar deneyin.",
+  "daily-quota": "Bugünkü ücretsiz çeviri hakkı doldu.",
   "rate-limit": "Çeviri servisi şu an çok yoğun. Bir dakika sonra tekrar deneyin.",
   key: "Gemini API anahtarı geçersiz ya da girilmemiş. Ayarlar bölümünü kontrol edin.",
   video: "Bu video açılamadı. Video özel, listelenmemiş, yaş kısıtlamalı ya da kaldırılmış olabilir.",
@@ -45,14 +49,17 @@ const MESSAGES: Record<Failure, string> = {
   "bad-response": "Çeviri tamamlanamadı. Lütfen tekrar deneyin.",
   network: "İnternet bağlantısı yok. Bağlantınızı kontrol edip tekrar deneyin.",
 };
+const CODES: Record<Failure, ErrorCode> = { "daily-quota": "quota", "rate-limit": "other", key: "key", video: "video", server: "other", "bad-response": "other", network: "network" };
+const fail = (kind: Failure) => new UserFacingError(MESSAGES[kind], CODES[kind]);
 
-type ErrorBody = { error?: { message?: string; status?: string; details?: Array<{ retryDelay?: string; violations?: Array<{ quotaId?: string }> }> } };
+type ErrorBody = { error?: { message?: string; status?: string; details?: Array<{ retryDelay?: string; violations?: Array<{ quotaId?: string; quotaValue?: string }> }> } };
 function classify(status: number, body: ErrorBody): GeminiFailure {
   const error = body.error ?? {}; const message = error.message ?? "";
   if (status === 429) {
-    const quotaIds = (error.details ?? []).flatMap(d => d.violations ?? []).map(v => v.quotaId ?? "");
+    const daily = (error.details ?? []).flatMap(d => d.violations ?? []).find(v => /PerDay/i.test(v.quotaId ?? ""));
     const retry = Number.parseFloat((error.details ?? []).find(d => d.retryDelay)?.retryDelay ?? "");
-    return quotaIds.some(id => /PerDay/i.test(id)) ? new GeminiFailure("daily-quota") : new GeminiFailure("rate-limit", Number.isFinite(retry) ? Math.ceil(retry) : 20);
+    const limit = Number(daily?.quotaValue);
+    return daily ? new GeminiFailure("daily-quota", 0, limit > 0 ? limit : undefined) : new GeminiFailure("rate-limit", Number.isFinite(retry) ? Math.ceil(retry) : 20);
   }
   if (status === 401 || status === 403 || /api key|API_KEY/i.test(message)) return new GeminiFailure("key");
   if (status === 400 || status === 404) return new GeminiFailure(/video|file|uri|url|youtube/i.test(message) ? "video" : "bad-response");
@@ -62,7 +69,7 @@ function classify(status: number, body: ErrorBody): GeminiFailure {
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function generate(options: GeminiOptions, model: string, parts: Part[], schema: object): Promise<string> {
-  await options.onRequest?.();
+  await options.onRequest?.(model);
   let response: Response;
   try {
     response = await fetch(`${ENDPOINT}/${model}:generateContent`, {
@@ -88,9 +95,11 @@ async function generate(options: GeminiOptions, model: string, parts: Part[], sc
  * used up or it returns an unusable answer.
  */
 export async function generateJson<T>(options: GeminiOptions, parts: Part[], schema: object, isValid: (value: T) => boolean = () => true): Promise<T> {
-  if (!options.apiKey) throw new UserFacingError(MESSAGES.key);
+  if (!options.apiKey) throw fail("key");
+  const models = MODELS.filter(m => !options.isExhausted?.(m));
+  if (!models.length) throw fail("daily-quota");
   let last: Failure = "bad-response";
-  for (const model of MODELS) {
+  for (const model of models) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const value = JSON.parse(await generate(options, model, parts, schema)) as T;
@@ -99,7 +108,8 @@ export async function generateJson<T>(options: GeminiOptions, parts: Part[], sch
       } catch (error) {
         const failure = error instanceof GeminiFailure ? error : new GeminiFailure("bad-response");
         last = failure.kind;
-        if (failure.kind === "key" || failure.kind === "video" || failure.kind === "network") throw new UserFacingError(MESSAGES[failure.kind]);
+        if (failure.kind === "key" || failure.kind === "video" || failure.kind === "network") throw fail(failure.kind);
+        if (failure.kind === "daily-quota") await options.onDailyQuota?.(model, failure.limit);
         if ((failure.kind === "rate-limit" || failure.kind === "server") && attempt < 2 && failure.retryAfter <= MAX_WAIT_SECONDS) {
           options.onWait?.(failure.retryAfter); await sleep(failure.retryAfter * 1000); continue;
         }
@@ -107,5 +117,5 @@ export async function generateJson<T>(options: GeminiOptions, parts: Part[], sch
       }
     }
   }
-  throw new UserFacingError(MESSAGES[last]);
+  throw fail(last);
 }
