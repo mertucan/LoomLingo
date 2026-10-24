@@ -35,7 +35,7 @@ type PlayerResponse = {
 
 async function request(url: string, init?: RequestInit): Promise<Response> {
   try { return await fetch(url, init); }
-  catch { throw new UserFacingError("İnternet bağlantısı yok. Bağlantınızı kontrol edip tekrar deneyin.", "network"); }
+  catch { throw new UserFacingError("İnternet bağlantısı yok.", "network"); }
 }
 
 /** Public metadata from oEmbed; used when the player endpoint gives no title. */

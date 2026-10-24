@@ -40,7 +40,7 @@ test("waits and retries after a per-minute rate limit", async () => {
 
 test("stops at once for an invalid key", async () => {
   fetchMock.mockResolvedValue(json(400, { error: { message: "API key not valid. Please pass a valid API key.", status: "INVALID_ARGUMENT" } }));
-  await expect(generateJson(options, [{ text: "x" }], {})).rejects.toThrow(/API anahtarı geçersiz/);
+  await expect(generateJson(options, [{ text: "x" }], {})).rejects.toThrow(/anahtarı geçersiz/);
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 

@@ -14,7 +14,6 @@
       }
     },
     "plugins": [
-      "expo-secure-store",
       [
         "expo-sharing",
         {
@@ -45,7 +44,8 @@
             "useLegacyPackaging": true
           }
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {

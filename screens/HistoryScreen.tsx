@@ -1,17 +1,27 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, FlatList, StyleSheet, Text, View } from "react-native";
 import { Button } from "../components/Button";
+import { Header } from "../components/Header";
 import { colors, font } from "../components/theme";
+import { VideoCard } from "../components/VideoCard";
 import { clearCache, getHistoryItems, removeCached } from "../services/cache";
 import { TranslationResult } from "../types";
+
 export function HistoryScreen({ onOpen, onBack }: { onOpen: (item: TranslationResult) => void; onBack: () => void }) {
   const [items, setItems] = useState<TranslationResult[]>([]); const load = useCallback(() => void getHistoryItems().then(setItems), []); useEffect(load, [load]);
-  const erase = (id: string) => Alert.alert("Geçmişten silinsin mi?", "Bu çeviri telefondan kaldırılacak.", [{ text: "Vazgeç", style: "cancel" }, { text: "Sil", style: "destructive", onPress: () => void removeCached(id).then(load) }]);
-  return <View style={styles.page}><Text style={styles.title}>🕘 Geçmiş</Text><Text style={styles.help}>Buradaki videolar internetsiz ve hak harcamadan tekrar açılır.</Text>
-    <FlatList data={items} keyExtractor={x => x.videoId} ListEmptyComponent={<Text style={styles.empty}>Henüz çevrilmiş video yok.</Text>}
-      renderItem={({ item }) => <View style={styles.item}><Text style={styles.itemTitle} numberOfLines={3}>{item.title}</Text><Text style={styles.date}>{new Date(item.createdAt).toLocaleDateString("tr-TR")} · {item.sourceLanguage}</Text>
-        <View style={styles.row}><View style={styles.wide}><Button icon="▶️" label="Aç" onPress={() => onOpen(item)} /></View><Button flex icon="🗑️" label="Sil" kind="danger" onPress={() => erase(item.videoId)} /></View></View>}
-      ListFooterComponent={items.length ? <Button icon="🗑️" label="Tüm Geçmişi Sil" kind="danger" onPress={() => Alert.alert("Tüm geçmiş silinsin mi?", "Tüm kayıtlı çeviriler telefondan kaldırılır.", [{ text: "Vazgeç", style: "cancel" }, { text: "Tümünü Sil", style: "destructive", onPress: () => void clearCache().then(load) }])} /> : null} />
-    <Button icon="🏠" label="Ana Sayfa" onPress={onBack} /></View>;
+  const erase = (id: string) => Alert.alert("Silinsin mi?", "Bu video geçmişten kaldırılır.", [{ text: "Vazgeç", style: "cancel" }, { text: "Sil", style: "destructive", onPress: () => void removeCached(id).then(load) }]);
+  const eraseAll = () => Alert.alert("Tümü silinsin mi?", "Bütün çeviriler telefondan kaldırılır.", [{ text: "Vazgeç", style: "cancel" }, { text: "Tümünü Sil", style: "destructive", onPress: () => void clearCache().then(load) }]);
+  return <View style={styles.page}>
+    <Header title="Geçmiş" onBack={onBack} />
+    <FlatList contentContainerStyle={styles.list} data={items} keyExtractor={x => x.videoId}
+      ListHeaderComponent={items.length ? <Text style={styles.help}>İnternetsiz ve hak harcamadan izlenir.</Text> : null}
+      ListEmptyComponent={<Text style={styles.empty}>Henüz çevrilmiş video yok.</Text>}
+      renderItem={({ item }) => <VideoCard item={item} detail={`${new Date(item.createdAt).toLocaleDateString("tr-TR")} · ${item.sourceLanguage}`} onPress={() => onOpen(item)} onDelete={() => erase(item.videoId)} />}
+      ListFooterComponent={items.length > 1 ? <Button icon="trash-outline" label="Tümünü Sil" kind="danger" onPress={eraseAll} /> : null} />
+  </View>;
 }
-const styles = StyleSheet.create({ page: { flex: 1, padding: 20, backgroundColor: colors.background }, title: { fontSize: font.title, fontWeight: "900", color: "#082F49" }, help: { fontSize: font.small, lineHeight: 26, color: colors.muted, marginVertical: 10 }, item: { backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.border, padding: 16, borderRadius: 16, marginBottom: 12 }, itemTitle: { fontSize: font.body, lineHeight: 29, fontWeight: "800", color: colors.text }, date: { fontSize: 17, color: colors.muted, marginTop: 6 }, row: { flexDirection: "row", gap: 10 }, wide: { flex: 2 }, empty: { fontSize: font.body, color: colors.muted, marginTop: 30, textAlign: "center" } });
+const styles = StyleSheet.create({
+  page: { flex: 1, backgroundColor: colors.background }, list: { paddingHorizontal: 16, paddingBottom: 30 },
+  help: { fontSize: font.caption, color: colors.muted, marginBottom: 6, marginLeft: 4 },
+  empty: { fontSize: font.body, color: colors.muted, marginTop: 40, textAlign: "center" },
+});

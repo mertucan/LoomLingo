@@ -42,12 +42,12 @@ class GeminiFailure extends Error { constructor(public readonly kind: Failure, p
 
 const MESSAGES: Record<Failure, string> = {
   "daily-quota": "Bugünkü ücretsiz çeviri hakkı doldu.",
-  "rate-limit": "Çeviri servisi şu an çok yoğun. Bir dakika sonra tekrar deneyin.",
-  key: "Gemini API anahtarı geçersiz ya da girilmemiş. Ayarlar bölümünü kontrol edin.",
-  video: "Bu video açılamadı. Video özel, listelenmemiş, yaş kısıtlamalı ya da kaldırılmış olabilir.",
-  server: "Çeviri servisi şu an yanıt vermiyor. Biraz sonra tekrar deneyin.",
-  "bad-response": "Çeviri tamamlanamadı. Lütfen tekrar deneyin.",
-  network: "İnternet bağlantısı yok. Bağlantınızı kontrol edip tekrar deneyin.",
+  "rate-limit": "Çeviri servisi yoğun. Bir dakika sonra tekrar deneyin.",
+  key: "Gemini anahtarı geçersiz. Uygulamanın yeni anahtarla kurulması gerekiyor.",
+  video: "Bu video açılamadı. Özel, yaş kısıtlamalı ya da kaldırılmış olabilir.",
+  server: "Çeviri servisi yanıt vermiyor. Biraz sonra tekrar deneyin.",
+  "bad-response": "Çeviri tamamlanamadı. Tekrar deneyin.",
+  network: "İnternet bağlantısı yok.",
 };
 const CODES: Record<Failure, ErrorCode> = { "daily-quota": "quota", "rate-limit": "other", key: "key", video: "video", server: "other", "bad-response": "other", network: "network" };
 const fail = (kind: Failure) => new UserFacingError(MESSAGES[kind], CODES[kind]);

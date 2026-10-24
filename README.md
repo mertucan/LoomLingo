@@ -5,6 +5,21 @@ A personal-use Android app for watching YouTube videos in Turkish. You paste a l
 - **Free to run.** Gemini's free API tier, no backend, no paid services.
 - **Stack:** Expo SDK 57, React Native 0.86 and TypeScript. Android only. Installed as an APK built with EAS Build, not published on Google Play.
 
+## Screenshots
+
+| Home | Watching (Turkish subtitle + voice) | Reading |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/home.png" width="240" alt="Home screen with the paste button and the last video"> | <img src="docs/screenshots/watch.png" width="240" alt="Watch screen: YouTube video with a large Turkish subtitle box below it"> | <img src="docs/screenshots/read.png" width="240" alt="Reading view with the full Turkish translation and timestamps"> |
+
+| History | Settings |
+| :---: | :---: |
+| <img src="docs/screenshots/history.png" width="240" alt="History of translated videos"> | <img src="docs/screenshots/settings.png" width="240" alt="Settings: Turkish voice, speech speed and glossary"> |
+
+How these were made:
+- They were rendered from the app's web build in headless Chrome at phone size (412 × 892), using sample data from a real Hindi overlock video.
+- On the watch screen, the subtitle line was placed by hand, because the subtitle sync uses WebView features that only work on the phone.
+- In Settings, the natural voices look disabled because they need the APK; on the phone they can be downloaded.
+
 ## How it works
 
 ```
@@ -18,9 +33,8 @@ link ─► local history (cache) ─► YouTube captions ─► Gemini text tra
 1. **Cache first.** A video that was already translated opens from the phone's history. No internet or API quota is used.
 2. **Captions path (fast, cheap).** [services/transcript.ts](services/transcript.ts) reads the video's caption track list. It prefers a human Turkish track, then a human track in the spoken language, then any human track, then the automatic track. Caption lines are grouped into sentence-sized **cues** with start and end times, then translated by Gemini in batches ([services/translate.ts](services/translate.ts)). Turkish tracks are shown as they are, without translation. Tracks with too little text (fewer than 60 characters per minute) are treated as unusable. A typical case is an English auto-caption on a Bengali video.
 3. **Gemini video path (fallback).** [services/geminiVideo.ts](services/geminiVideo.ts) passes the public YouTube URL straight to Gemini. Gemini listens to the audio, looks at the frames, and returns timed cues with the original speech and its Turkish translation. Timestamps are requested as `MM:SS`: asked for plain seconds, Gemini sometimes wrote 5:26 as 526. Cues longer than 9 seconds are split at word boundaries for the subtitle box. Videos longer than 20 minutes are processed in 10-minute sections using `video_metadata` offsets, with progress shown as "Bölüm 2/3 çevriliyor…".
-4. **Watch screen** ([screens/WatchScreen.tsx](screens/WatchScreen.tsx)). The official YouTube player is embedded with `react-native-youtube-iframe`. Below it, a large dark box shows the current Turkish line; the text size follows A−/A+. The original sound is muted while the Turkish voice is on, and comes back when the voice is switched off. Playback is started by tapping the video itself: YouTube's embedded player does not reliably start from a call that did not come from a tap inside it.
+4. **Watch screen** ([screens/WatchScreen.tsx](screens/WatchScreen.tsx)). YouTube's official embed page is opened directly in a WebView ([components/YoutubeVideo.tsx](components/YoutubeVideo.tsx)), sent with a `Referer` header that identifies the app. Because the page is not nested inside another page's iframe, the app can reach its `<video>` element: it reads the time, pauses and resumes for the voice sync, seeks, and detects ads so subtitles wait for the real video. Below it, a large dark box shows the current Turkish line; the text size follows A−/A+. The original sound is muted while the Turkish voice is on and re-muted at once if YouTube turns it back on; it returns when the voice is switched off. This was tested with Chrome and an Android WebView user agent against a real YouTube page. Playback is started by tapping the video itself, because YouTube does not reliably start from a call that did not come from a tap.
    - **Büyük Ekran** turns the phone sideways (`expo-screen-orientation`). The video then fills the screen and the subtitle is drawn over its lower part. The player stays mounted, so the video does not restart. The Android back button returns to the normal view first; elsewhere it goes back a screen instead of closing the app.
-   - Known limit: on some phones the original sound still plays after the video is started by a tap. YouTube's embedded player can ignore its mute and volume API there, and the app cannot reach the video element inside YouTube's iframe. The app re-applies mute and volume 0 every second while the voice is on.
 5. **Turkish voice and elastic sync** ([services/dubController.ts](services/dubController.ts)). Each cue is spoken when it starts. Because Turkish is often longer than the source:
    - the voice may use the time until the next cue begins;
    - it uses a shorter "spoken" version from Gemini when the full line would not fit;
@@ -68,18 +82,13 @@ Free-tier facts from Google's documentation (subject to change):
 - **Private and unlisted videos are not supported** by the video path. Unlisted videos still work through the captions path.
 - Per-model request limits are shown in [Google AI Studio](https://aistudio.google.com/) under *Usage / Rate limits*.
 
-### Usage bar and warnings
+### Daily limit warnings
 
-The home screen and Settings show a **"Bugünkü çeviri hakkı"** bar: the share of today's free quota that is left, and roughly how many more videos can be translated. The bar turns orange at 60 % used and red at 85 %.
-
-Behind the bar ([utils/quota.ts](utils/quota.ts), [services/quota.ts](services/quota.ts)):
-- Requests are counted per model per **quota day**. Google resets free quotas at midnight Pacific time, which is 10:00 or 11:00 in Turkey; US summer time is handled.
-- Google does not publish free-tier request limits; they are shown per project in AI Studio. The app assumes 20 requests per model per day until a quota error reveals the real limit (`quotaValue`). It then stores that limit.
-- A model that hit its daily limit is skipped until the reset.
-
-Warnings:
-- When the quota is used up, the app explains when it resets ("yarın saat 10:00") and points to History, which works without quota.
-- Before a translation that may use up most of what is left, or a video over an hour long, the app asks for confirmation.
+Google does not tell a free API key how much quota is left; limits are only shown in AI Studio. An earlier version showed an estimated usage bar, but its numbers were guesses, so it was removed. The app now shows only what Google actually reports ([services/quota.ts](services/quota.ts), [utils/quota.ts](utils/quota.ts)):
+- When a model answers "daily quota used up", it is remembered and skipped until the reset.
+- Google resets free quotas at midnight Pacific time, which is 10:00 or 11:00 in Turkey; US summer time is handled.
+- When every model is used up, the home screen says so and gives the reset time ("yarın saat 10:00"). History still works.
+- Before translating a video over an hour long, the app asks for confirmation.
 
 A typical day of 5–10 short videos (about 30 minutes) needs about 5–15 requests. Re-watching a video uses none.
 
@@ -88,7 +97,7 @@ A typical day of 5–10 short videos (about 30 minutes) needs about 5–15 reque
 ```
 App.tsx                  screen switching + share-intent handling
 screens/                 HomeScreen, WatchScreen, ResultScreen (reading), HistoryScreen, SettingsScreen
-components/              Button, ProgressCard, ErrorCard, UsageBar, theme
+components/              YoutubeVideo (player), Button/Tile, Header, VideoCard, ProgressCard, ErrorCard, theme
 hooks/useShareIntent.ts  receives links shared from the YouTube app (APK only)
 services/
   pipeline.ts            cache → captions → Gemini video
@@ -98,9 +107,9 @@ services/
   geminiVideo.ts         Gemini YouTube-URL path, long-video sections
   dubController.ts       keeps the Turkish voice in step with the video (elastic sync)
   voices.ts              phone voice + Piper voices (download, generate, play)
-  quota.ts               per-model daily usage for the usage bar
+  quota.ts               remembers models whose daily quota is used up
   cache.ts               history / cache (AsyncStorage)
-  settings.ts            settings, API key (.env or SecureStore)
+  settings.ts            settings, API key from .env
 utils/                   link parsing, cues and speech planning, quota day maths, text chunking, language names
 __tests__/               unit tests
 ```
@@ -138,7 +147,7 @@ How the key is handled:
 - `.env` is listed in `.gitignore`, so it is never committed.
 - `.env` is **not** listed in [.easignore](.easignore), so EAS Build receives it and bundles the key into the APK. EAS uses `.easignore` instead of `.gitignore` when it uploads the project.
 - `EXPO_PUBLIC_` values can be extracted from an APK. Keep the APK private.
-- If no key is bundled, the user can enter one in **Ayarlar** (Settings). It is stored encrypted with `expo-secure-store`.
+- There is no key field in the app. To change the key, edit `.env` and build a new APK.
 
 ## Try it on the phone with Expo Go (quick UI test)
 
@@ -213,10 +222,10 @@ The unit tests cover:
   - pausing the video while a sentence finishes;
   - waiting for a clip that is still generating;
   - seeking, voice off, and the user pressing pause
-- quota-day maths, including US summer time, and the usage bar's levels
+- quota-day maths, including US summer time
 - Gemini:
   - model fallback;
-  - learning daily limits;
+  - remembering used-up models;
   - rate-limit waiting;
   - invalid-key and offline errors
 
@@ -239,7 +248,7 @@ The app keeps working in the meantime through the Gemini video path.
 
 **Video does not play inside the app:**
 - Some channels disable embedding. The app then offers *YouTube'da Aç* and *Metni Oku*.
-- If no video plays at all, YouTube may have changed its embed rules. Update `react-native-youtube-iframe`, or set its `baseUrlOverride`.
+- If no video plays at all, YouTube may have changed its embed rules or page structure. All of it is in [components/YoutubeVideo.tsx](components/YoutubeVideo.tsx): the embed URL, the `Referer` header, and the selectors `video`, `.html5-video-player.ad-showing` and `.ytp-error`.
 
 **Natural voice problems:**
 - The model URLs are in `PIPER_VOICES` / `archiveUrl` in [services/voices.ts](services/voices.ts).

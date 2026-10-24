@@ -15,9 +15,6 @@ const SCHEMA = {
   required: ["sourceLanguage", "items"],
 };
 
-/** Number of Gemini requests a caption translation will take (for the usage warning). */
-export const captionRequestCount = (transcript: CaptionTranscript) => isTurkish(transcript.languageCode) ? 0 : batchByLength(transcript.cues).length;
-
 /** Translates caption cues batch by batch, keeping their timing. */
 export async function translateCaptions(options: GeminiOptions, transcript: CaptionTranscript, onProgress: (message: string) => void): Promise<{ sourceLanguage: string; cues: Cue[] }> {
   if (isTurkish(transcript.languageCode)) return { sourceLanguage: "Türkçe", cues: transcript.cues.map(c => ({ ...c, turkish: c.original })) };

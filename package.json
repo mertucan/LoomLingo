@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@dr.pogodin/react-native-fs": "2.40.4",
+    "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.31",
     "expo-asset": "~57.0.20",
@@ -18,9 +19,9 @@
     "expo-build-properties": "~57.0.22",
     "expo-clipboard": "~57.0.2",
     "expo-file-system": "~57.0.7",
+    "expo-font": "~57.0.4",
     "expo-keep-awake": "~57.0.2",
     "expo-screen-orientation": "~57.0.3",
-    "expo-secure-store": "~57.0.4",
     "expo-sharing": "~57.0.24",
     "expo-speech": "~57.0.3",
     "expo-status-bar": "~57.0.1",
@@ -28,8 +29,7 @@
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-sherpa-onnx": "0.4.4",
-    "react-native-webview": "13.16.1",
-    "react-native-youtube-iframe": "2.4.1"
+    "react-native-webview": "13.16.1"
   },
   "devDependencies": {
     "@babel/helper-validator-identifier": "^7.28.5",

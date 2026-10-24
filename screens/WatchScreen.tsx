@@ -3,18 +3,16 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BackHandler, Linking, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import YoutubePlayer, { YoutubeIframeRef } from "react-native-youtube-iframe";
-import { Button } from "../components/Button";
+import { Ionicons } from "@expo/vector-icons";
+import { Button, Row, Tile } from "../components/Button";
+import { Header } from "../components/Header";
 import { ErrorCard } from "../components/ErrorCard";
 import { colors, font } from "../components/theme";
+import { VideoStatus, YoutubeVideo, YoutubeVideoHandle } from "../components/YoutubeVideo";
 import { DubController, DubView } from "../services/dubController";
 import { getSettings, saveSettings } from "../services/settings";
 import { createVoice, DubVoice, hasTurkishDeviceVoice } from "../services/voices";
 import { Settings, TranslationResult } from "../types";
-
-const TICK_MS = 250;
-/** How often (in ticks) the original sound is checked while the Turkish voice is on. */
-const SILENCE_CHECK_TICKS = 4;
 
 type Props = { result: TranslationResult; onBack: () => void; onRead: () => void; onRetranslate: () => void };
 export function WatchScreen({ result, onBack, onRead, onRetranslate }: Props) {
@@ -24,12 +22,11 @@ export function WatchScreen({ result, onBack, onRead, onRetranslate }: Props) {
   const [big, setBig] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [voice, setVoice] = useState<DubVoice | null>(null); const [notice, setNotice] = useState<string | null>(null);
-  const [playing, setPlaying] = useState(false); const [held, setHeld] = useState(false);
-  // Volume sent to YouTube while dubbing; flipped between 0 and 1 (both silent) to re-send it.
-  const [silentVolume, setSilentVolume] = useState(0); const dubbingRef = useRef(true);
+  const [ad, setAd] = useState(false);
+  const lastTime = useRef(0); const wasPlaying = useRef(false);
   const [view, setView] = useState<DubView>({ index: -1, text: "", waiting: null });
   const [playerError, setPlayerError] = useState<string | null>(null);
-  const player = useRef<YoutubeIframeRef | null>(null); const controller = useRef<DubController | null>(null);
+  const video = useRef<YoutubeVideoHandle | null>(null); const controller = useRef<DubController | null>(null);
   const cues = result.cues;
 
   useEffect(() => { void getSettings().then(setSettings); }, []);
@@ -40,8 +37,8 @@ export function WatchScreen({ result, onBack, onRead, onRetranslate }: Props) {
     void createVoice(settings.voice, result.videoId).then(async ({ voice: v, fellBack }) => {
       created = v;
       if (!alive) { v.dispose(); return; }
-      if (fellBack) setNotice("Doğal ses hazır değil, telefonun sesi kullanılıyor. Ayarlar'dan sesi indirebilirsiniz.");
-      else if (settings.voice === "device" && !(await hasTurkishDeviceVoice())) setNotice("Telefonda Türkçe okuma sesi bulunamadı. Ayarlar'dan doğal ses indirin ya da telefon ayarlarında Metin okuma → Türkçe'yi ekleyin.");
+      if (fellBack) setNotice("Doğal ses hazır değil; telefonun sesi kullanılıyor.");
+      else if (settings.voice === "device" && !(await hasTurkishDeviceVoice())) setNotice("Telefonda Türkçe ses yok. Ayarlar'dan doğal ses indirin.");
       setVoice(v);
     });
     return () => { alive = false; created?.dispose(); };
@@ -49,31 +46,23 @@ export function WatchScreen({ result, onBack, onRead, onRetranslate }: Props) {
   }, [settings?.voice, cues, result.videoId]);
   useEffect(() => {
     if (!voice || !cues || !settings) return;
-    const c = new DubController(cues, voice, { pause: () => setHeld(true), resume: () => setHeld(false) }, setView, settings.dubbing, settings.speechRate);
+    const c = new DubController(cues, voice, { pause: () => video.current?.pause(), resume: () => video.current?.play() }, setView, settings.dubbing, settings.speechRate);
     controller.current = c;
     return () => { c.dispose(); controller.current = null; };
   }, [voice, cues, settings?.speechRate]);
 
-  dubbingRef.current = settings?.dubbing ?? true;
   /**
-   * YouTube's player may turn its sound back on when it is started by a tap
-   * inside it, ignoring the earlier mute. While the Turkish voice is on, the
-   * sound is checked every second and silenced again if needed.
+   * The player reports its state four times a second while playing. The player is the truth: a tap
+   * on the video plays or pauses it, and pauses made by the voice sync (controller.waiting) are ignored.
    */
-  const enforceSilence = useCallback(async () => {
-    if (!dubbingRef.current || !player.current) return;
-    const [muted, volume] = await Promise.all([player.current.isMuted(), player.current.getVolume()]).catch((): [boolean, number] => [true, 0]);
-    if (!muted && volume > 1) setSilentVolume(v => (v === 0 ? 1 : 0));
+  const onStatus = useCallback((status: VideoStatus) => {
+    setAd(status.ad);
+    if (status.ad) return;
+    lastTime.current = status.time;
+    const c = controller.current;
+    if (!status.paused && !status.ended) { wasPlaying.current = true; c?.tick(status.time); }
+    else if (wasPlaying.current && !c?.waiting) { wasPlaying.current = false; c?.userPaused(); }
   }, []);
-  useEffect(() => {
-    if (!playing) return;
-    let ticks = 0;
-    const timer = setInterval(() => {
-      void player.current?.getCurrentTime().then(t => controller.current?.tick(t)).catch(() => undefined);
-      if (++ticks % SILENCE_CHECK_TICKS === 0) void enforceSilence();
-    }, TICK_MS);
-    return () => clearInterval(timer);
-  }, [playing, enforceSilence]);
 
   const setBigScreen = useCallback((on: boolean) => {
     setBig(on);
@@ -89,33 +78,30 @@ export function WatchScreen({ result, onBack, onRead, onRetranslate }: Props) {
   }, [big, setBigScreen]);
 
   const change = async (patch: Partial<Settings>) => { if (!settings) return; const next = { ...settings, ...patch }; setSettings(next); await saveSettings(next); };
-  const back10 = async () => { const t = await player.current?.getCurrentTime().catch(() => 0) ?? 0; controller.current?.userPaused(); player.current?.seekTo(Math.max(0, t - 10), true); };
-  const toggleDubbing = () => { if (!settings) return; controller.current?.setEnabled(!settings.dubbing); void change({ dubbing: !settings.dubbing }); };
-  // The player's own state is the truth: tapping the video plays or pauses it inside YouTube's player,
-  // and pauses caused by the voice sync (controller.waiting) are ignored.
-  const onState = useCallback((state: string) => {
-    if (state === "playing") void enforceSilence();
-    if (state === "playing" && !controller.current?.waiting) setPlaying(true);
-    if ((state === "paused" || state === "ended") && !controller.current?.waiting) { setPlaying(false); controller.current?.userPaused(); }
-  }, [enforceSilence]);
-
-  if (!cues) return <ScrollView contentContainerStyle={styles.page}><Text style={styles.title}>{result.title}</Text><ErrorCard message="Bu video eski bir sürümle çevrildi. Türkçe altyazı ve sesle izlemek için bir kez yeniden çevrilmesi gerekiyor." onRetry={onRetranslate} retryLabel="Yeniden Çevir" /><Button icon="📖" label="Metni Oku" kind="secondary" onPress={onRead} /><Button icon="🏠" label="Ana Sayfa" kind="secondary" onPress={onBack} /></ScrollView>;
+  const back10 = () => { controller.current?.userPaused(); video.current?.seekTo(lastTime.current - 10); };
+  const toggleDubbing = () => {
+    if (!settings) return;
+    controller.current?.setEnabled(!settings.dubbing); video.current?.setMuted(!settings.dubbing);
+    void change({ dubbing: !settings.dubbing });
+  };
+  if (!cues) return <View style={styles.root}><Header title="İzle" onBack={onBack} /><ScrollView contentContainerStyle={styles.padded}><Text style={styles.title}>{result.title}</Text><ErrorCard message="Bu video eski sürümle çevrildi. İzlemek için bir kez yeniden çevrilmeli." onRetry={onRetranslate} retryLabel="Yeniden Çevir" /><Button icon="document-text-outline" label="Metni Oku" kind="secondary" onPress={onRead} /></ScrollView></View>;
   if (!settings) return null;
   const videoWidth = big ? Math.min(width, Math.round(height * 16 / 9)) : width;
   const videoHeight = big ? height : Math.round(width * 9 / 16);
   const size = (big ? 24 : 26) * settings.fontScale;
-  const subtitle = view.index < 0 ? "Başlatmak için videonun üstüne dokunun. Türkçe altyazı burada görünecek." : view.text;
-  const waiting = view.waiting && <Text style={styles.waiting}>{view.waiting === "voice" ? "⏳ Türkçe anlatım bitiyor, video bekliyor…" : "⏳ Türkçe ses hazırlanıyor…"}</Text>;
+  const subtitle = ad ? "Reklamdan sonra altyazı başlayacak…" : view.index < 0 ? "Başlatmak için videoya dokunun." : view.text;
+  const waiting = view.waiting && <Text style={styles.waiting}>{view.waiting === "voice" ? "Türkçe anlatım bitiyor…" : "Türkçe ses hazırlanıyor…"}</Text>;
+  const fontStep = (delta: number) => void change({ fontScale: Math.min(1.8, Math.max(0.8, Math.round((settings.fontScale + delta) * 10) / 10)) });
 
-  if (playerError) return <ScrollView contentContainerStyle={styles.page}><ErrorCard message={playerError} /><Button icon="▶️" label="YouTube'da Aç" onPress={() => void Linking.openURL(result.url)} /><Button icon="📖" label="Metni Oku" kind="secondary" onPress={onRead} /><Button icon="🏠" label="Ana Sayfa" kind="secondary" onPress={onBack} /></ScrollView>;
+  if (playerError) return <View style={styles.root}><Header title="İzle" onBack={onBack} /><ScrollView contentContainerStyle={styles.padded}><ErrorCard message={playerError} /><Button icon="logo-youtube" label="YouTube'da Aç" onPress={() => void Linking.openURL(result.url)} /><Button icon="document-text-outline" label="Metni Oku" kind="secondary" onPress={onRead} /></ScrollView></View>;
   return <View style={[styles.root, big && styles.bigRoot]}>
     <StatusBar hidden={big} />
+    {!big && <Header title={result.title} onBack={onBack} />}
     <View style={{ width: videoWidth, height: videoHeight }}>
-      <YoutubePlayer ref={player} height={videoHeight} width={videoWidth} videoId={result.videoId} play={playing && !held} mute={settings.dubbing} volume={settings.dubbing ? silentVolume : 100}
-        initialPlayerParams={{ controls: false, rel: false, preventFullScreen: true, iv_load_policy: 3 }} forceAndroidAutoplay onChangeState={onState}
-        onError={(e: string) => { setPlaying(false); setPlayerError(e === "embed_not_allowed" ? "Bu videonun sahibi, videonun başka uygulamalarda oynatılmasına izin vermiyor. Türkçe metni okuyabilir ya da videoyu YouTube'da açabilirsiniz." : "Video oynatılamadı. İnternet bağlantısını kontrol edin ya da videoyu YouTube'da açın."); }} />
+      <YoutubeVideo ref={video} videoId={result.videoId} width={videoWidth} height={videoHeight} muted={settings.dubbing} onStatus={onStatus}
+        onError={() => setPlayerError("Bu video uygulamada oynatılamıyor. Metni okuyabilir ya da YouTube'da açabilirsiniz.")} />
       {big && view.index >= 0 && <View style={styles.overlay} pointerEvents="none"><Text style={[styles.subtitle, { fontSize: size, lineHeight: size * 1.35 }]}>{subtitle}</Text>{waiting}</View>}
-      {big && <Pressable style={styles.exitBig} onPress={() => setBigScreen(false)} accessibilityRole="button" accessibilityLabel="Küçült"><Text style={styles.exitBigText}>✕ Küçült</Text></Pressable>}
+      {big && <Pressable style={styles.exitBig} onPress={() => setBigScreen(false)} accessibilityRole="button" accessibilityLabel="Küçült"><Ionicons name="contract-outline" size={26} color="#fff" /></Pressable>}
     </View>
     {!big && <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.subtitleBox} accessibilityLiveRegion="polite">
@@ -123,13 +109,15 @@ export function WatchScreen({ result, onBack, onRead, onRetranslate }: Props) {
         {waiting}
       </View>
       <View style={styles.padded}>
-        {notice && <Text style={styles.notice}>ℹ️  {notice}</Text>}
-        <Button size="large" icon="⛶" label="Büyük Ekran" onPress={() => setBigScreen(true)} />
-        <Button icon="⏪" label="10 saniye geri" kind="secondary" onPress={() => void back10()} />
-        <Button icon={settings.dubbing ? "🔊" : "🔇"} label={settings.dubbing ? "Türkçe Ses: AÇIK" : "Türkçe Ses: KAPALI"} kind={settings.dubbing ? "primary" : "secondary"} onPress={toggleDubbing} />
-        <View style={styles.row}><Button flex label="A−  Küçük yazı" kind="secondary" onPress={() => void change({ fontScale: Math.max(0.8, Math.round((settings.fontScale - 0.1) * 10) / 10) })} /><Button flex label="A+  Büyük yazı" kind="secondary" onPress={() => void change({ fontScale: Math.min(1.8, Math.round((settings.fontScale + 0.1) * 10) / 10) })} /></View>
-        <View style={styles.row}><Button flex icon="📖" label="Metni Oku" kind="secondary" onPress={onRead} /><Button flex icon="🏠" label="Ana Sayfa" kind="secondary" onPress={onBack} /></View>
-        <Text style={styles.meta}>{result.title} · Algılanan dil: {result.sourceLanguage}</Text>
+        {notice && <Text style={styles.notice}>{notice}</Text>}
+        <Row>
+          <Tile icon="play-back-outline" label="10 sn geri" onPress={back10} />
+          <Tile icon={settings.dubbing ? "volume-high" : "volume-mute-outline"} label={settings.dubbing ? "Türkçe ses açık" : "Türkçe ses kapalı"} active={settings.dubbing} onPress={toggleDubbing} />
+          <Tile icon="expand-outline" label="Büyük ekran" onPress={() => setBigScreen(true)} />
+        </Row>
+        <Row><Button flex icon="remove" label="Yazı" kind="secondary" onPress={() => fontStep(-0.1)} /><Button flex icon="add" label="Yazı" kind="secondary" onPress={() => fontStep(0.1)} /></Row>
+        <Button icon="document-text-outline" label="Metni Oku" kind="secondary" onPress={onRead} />
+        <Text style={styles.meta}>{result.sourceLanguage} dilinden çevrildi</Text>
       </View>
     </ScrollView>}
   </View>;
@@ -139,15 +127,13 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   bigRoot: { backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
   overlay: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.72)", paddingHorizontal: 24, paddingVertical: 10 },
-  exitBig: { position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
-  exitBigText: { color: "#fff", fontSize: font.small, fontWeight: "800" },
+  exitBig: { position: "absolute", top: 10, right: 10, width: 52, height: 52, borderRadius: 26, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" },
   content: { paddingBottom: 30, backgroundColor: colors.background },
-  padded: { paddingHorizontal: 16 },
+  padded: { paddingHorizontal: 16, paddingBottom: 24 },
   title: { fontSize: font.heading, fontWeight: "800", color: colors.text, marginBottom: 10 },
-  subtitleBox: { backgroundColor: colors.subtitleBackground, minHeight: 190, paddingHorizontal: 18, paddingVertical: 16, justifyContent: "center", marginBottom: 10 },
+  subtitleBox: { backgroundColor: colors.subtitleBackground, minHeight: 180, paddingHorizontal: 20, paddingVertical: 18, justifyContent: "center", marginBottom: 12 },
   subtitle: { color: colors.subtitleText, fontWeight: "700", textAlign: "center" },
   waiting: { color: "#FDE68A", fontSize: font.small, textAlign: "center", marginTop: 10, fontWeight: "700" },
-  notice: { fontSize: font.small, lineHeight: 26, color: colors.warning, fontWeight: "700", marginVertical: 6 },
-  row: { flexDirection: "row", gap: 10 },
-  meta: { fontSize: 16, color: colors.muted, marginTop: 10, textAlign: "center" },
+  notice: { fontSize: font.small, lineHeight: 25, color: colors.warning, fontWeight: "600", marginVertical: 6 },
+  meta: { fontSize: font.caption, color: colors.muted, marginTop: 10, textAlign: "center" },
 });

@@ -31,30 +31,3 @@ export function resetText(now = new Date()): string {
   const sameDay = reset.toDateString() === now.toDateString();
   return `${sameDay ? "bugün" : "yarın"} saat ${String(reset.getHours()).padStart(2, "0")}:${String(reset.getMinutes()).padStart(2, "0")}`;
 }
-
-/**
- * Google does not publish free-tier request limits; they are shown per
- * project in AI Studio and change over time. Until a model's real limit is
- * learned from a quota error, this conservative value is assumed.
- */
-export const ASSUMED_DAILY_REQUESTS = 20;
-export const TYPICAL_REQUESTS_PER_VIDEO = 2;
-export type ModelUsage = { used: number; exhausted: boolean; limit?: number };
-export type QuotaDay = { day: string; models: Record<string, ModelUsage>; videos: number; videoSeconds: number };
-export type QuotaLevel = "ok" | "warn" | "low" | "empty";
-export type QuotaStatus = { fraction: number; videosLeft: number; level: QuotaLevel; videos: number; minutes: number; resetText: string };
-
-export function quotaStatus(day: QuotaDay, models: readonly string[], now = new Date()): QuotaStatus {
-  let capacity = 0; let used = 0; let requests = 0;
-  for (const model of models) {
-    const usage = day.models[model] ?? { used: 0, exhausted: false };
-    const limit = usage.limit ?? Math.max(ASSUMED_DAILY_REQUESTS, usage.used);
-    capacity += limit; used += usage.exhausted ? limit : Math.min(usage.used, limit); requests += usage.used;
-  }
-  const allExhausted = models.every(m => day.models[m]?.exhausted);
-  const fraction = allExhausted ? 1 : capacity ? Math.min(1, used / capacity) : 0;
-  const perVideo = day.videos >= 2 ? Math.max(1, requests / day.videos) : TYPICAL_REQUESTS_PER_VIDEO;
-  const videosLeft = allExhausted ? 0 : Math.floor((capacity - used) / perVideo);
-  const level: QuotaLevel = allExhausted || videosLeft === 0 ? "empty" : fraction >= 0.85 ? "low" : fraction >= 0.6 ? "warn" : "ok";
-  return { fraction, videosLeft, level, videos: day.videos, minutes: Math.round(day.videoSeconds / 60), resetText: resetText(now) };
-}

@@ -1,7 +1,12 @@
+import { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, Text, View } from "react-native";
 import { Button } from "./Button";
-import { colors, font } from "./theme";
-export function ErrorCard({ message, onRetry, retryLabel = "Tekrar Dene" }: { message: string; onRetry?: () => void; retryLabel?: string }) {
-  return <View style={styles.card}><Text accessibilityLiveRegion="assertive" style={styles.text}>⚠️  {message}</Text>{onRetry && <Button icon="🔄" label={retryLabel} onPress={onRetry} />}</View>;
+import { colors, font, radius } from "./theme";
+export function ErrorCard({ message, onRetry, retryLabel = "Tekrar Dene", tone = "error" }: { message: string; onRetry?: () => void; retryLabel?: string; tone?: "error" | "warning" }) {
+  const color = tone === "error" ? colors.danger : colors.warning;
+  return <View style={[styles.card, { backgroundColor: tone === "error" ? colors.dangerSoft : colors.warningSoft, borderColor: color }]}>
+    <View style={styles.row}><Ionicons name={tone === "error" ? "alert-circle" : "time-outline"} size={28} color={color} /><Text accessibilityLiveRegion="assertive" style={[styles.text, { color }]}>{message}</Text></View>
+    {onRetry && <Button icon="refresh" label={retryLabel} onPress={onRetry} />}
+  </View>;
 }
-const styles = StyleSheet.create({ card: { padding: 20, gap: 12, backgroundColor: "#FEF2F2", borderWidth: 3, borderColor: colors.danger, borderRadius: 18, marginTop: 18 }, text: { color: "#7F1D1D", fontSize: font.body, lineHeight: 31, fontWeight: "700" } });
+const styles = StyleSheet.create({ card: { padding: 16, gap: 8, borderRadius: radius, borderWidth: 1.5, marginVertical: 10 }, row: { flexDirection: "row", gap: 10, alignItems: "flex-start" }, text: { flex: 1, fontSize: font.body, lineHeight: 28, fontWeight: "600" } });

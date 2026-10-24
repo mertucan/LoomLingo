@@ -38,9 +38,6 @@ Konuşma yoksa cues boş olsun.`;
 
 const mmss = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
-/** Number of Gemini requests the video path will take (for the usage warning). */
-export const videoRequestCount = (lengthSeconds: number | null) => planVideoSegments(lengthSeconds)?.length ?? 1;
-
 export async function translateYoutubeVideo(options: GeminiOptions, url: string, lengthSeconds: number | null, onProgress: (message: string) => void): Promise<{ sourceLanguage: string; cues: Cue[] }> {
   const segments = planVideoSegments(lengthSeconds) ?? [null];
   const valid = (value: VideoAnswer) => Array.isArray(value.cues);
