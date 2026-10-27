@@ -31,8 +31,9 @@ link ─► local history (cache) ─► YouTube captions ─► Gemini text tra
 ```
 
 1. **Cache first.** A video that was already translated opens from the phone's history. No internet or API quota is used.
-2. **Captions path (fast, cheap).** [services/transcript.ts](services/transcript.ts) reads the video's caption track list. It prefers a human Turkish track, then a human track in the spoken language, then any human track, then the automatic track. Caption lines are grouped into sentence-sized **cues** with start and end times, then translated by Gemini in batches ([services/translate.ts](services/translate.ts)). Turkish tracks are shown as they are, without translation. Tracks with too little text (fewer than 60 characters per minute) are treated as unusable. A typical case is an English auto-caption on a Bengali video.
-3. **Gemini video path (fallback).** [services/geminiVideo.ts](services/geminiVideo.ts) passes the public YouTube URL straight to Gemini. Gemini listens to the audio, looks at the frames, and returns timed cues with the original speech and its Turkish translation. Timestamps are requested as `MM:SS`: asked for plain seconds, Gemini sometimes wrote 5:26 as 526. Cues longer than 9 seconds are split at word boundaries for the subtitle box. Videos longer than 20 minutes are processed in 10-minute sections using `video_metadata` offsets, with progress shown as "Bölüm 2/3 çevriliyor…".
+2. **Captions path (fast, cheap).** [services/transcript.ts](services/transcript.ts) reads the video's caption track list. It prefers a human Turkish track, then a human track in the spoken language, then any human track, then the automatic track. Caption lines are grouped into sentence-sized **cues** with start and end times, then translated by Gemini in batches ([services/translate.ts](services/translate.ts)). Turkish tracks are shown as they are, without translation. Gemini occasionally leaves a line out of a batch. Such lines are requested again, and any line still missing is merged into its neighbour instead of being shown as "[anlaşılmadı]". Tracks with too little text (fewer than 60 characters per minute) are treated as unusable. A typical case is an English auto-caption on a Bengali video.
+3. **Gemini video path (fallback).** [services/geminiVideo.ts](services/geminiVideo.ts) passes the public YouTube URL straight to Gemini. Gemini listens to the audio, looks at the frames, and returns timed cues with the original speech and its Turkish translation. Timestamps are requested as `MM:SS`: asked for plain seconds, Gemini sometimes wrote 5:26 as 526. Cues longer than 9 seconds are split at word boundaries for the subtitle box. Videos longer than 4 minutes are processed in sections of about 3 minutes using `video_metadata` offsets, with progress shown as "Bölüm 2/5 çevriliyor…".
+   - Asked for a long stretch at once, Gemini summarises. On a 13-minute Hindi video, measured against its caption track: one request returned about half the text, 5-minute sections 65–85 %, and 3-minute sections about 95 %.
 4. **Watch screen** ([screens/WatchScreen.tsx](screens/WatchScreen.tsx)). YouTube's official embed page is opened directly in a WebView ([components/YoutubeVideo.tsx](components/YoutubeVideo.tsx)), sent with a `Referer` header that identifies the app. Because the page is not nested inside another page's iframe, the app can reach its `<video>` element: it reads the time, pauses and resumes for the voice sync, seeks, and detects ads so subtitles wait for the real video. Below it, a large dark box shows the current Turkish line; the text size follows A−/A+. The original sound is muted while the Turkish voice is on and re-muted at once if YouTube turns it back on; it returns when the voice is switched off. This was tested with Chrome and an Android WebView user agent against a real YouTube page. Playback is started by tapping the video itself, because YouTube does not reliably start from a call that did not come from a tap.
    - **Büyük Ekran** turns the phone sideways (`expo-screen-orientation`). The video then fills the screen and the subtitle is drawn over its lower part. The player stays mounted, so the video does not restart. The Android back button returns to the normal view first; elsewhere it goes back a screen instead of closing the app.
 5. **Turkish voice and elastic sync** ([services/dubController.ts](services/dubController.ts)). Each cue is spoken when it starts. Because Turkish is often longer than the source:
@@ -42,7 +43,11 @@ link ─► local history (cache) ─► YouTube captions ─► Gemini text tra
    - if it still runs over, **the video pauses briefly** until the sentence ends.
 
    Voice and picture never drift apart. In tests with real videos, the pauses added 1–5 % to the running time.
-6. **Errors.** Every failure is shown in plain Turkish with a **Tekrar Dene** (retry) button. Failures covered: no internet, invalid link, video missing or not accessible, invalid or missing key, daily limit reached, and service busy.
+6. **Voice prepared in advance.** With a natural voice, the watch screen starts generating every sentence in the background as soon as it opens ("Türkçe ses hazırlanıyor: %40"). Sentences about to be spoken jump the queue. Clips are kept per video, so a second viewing does not wait.
+7. **Adımlar (steps).** A numbered list of what the video shows ("Masurayı masura kapağına takın"), made by one Gemini text request from the translation and saved with the video ([services/assistant.ts](services/assistant.ts)). Tapping a step plays the video from that moment.
+8. **Soru sor (ask).** The user taps the microphone and asks, for example, "Gerginliği kaç numaraya ayarladı?". The recording (AAC) and the translation go to Gemini in one request. The answer is shown, read aloud, and can jump to the moment it refers to. If the video does not cover it, Gemini says so before giving general advice. Typing a question also works.
+   - Tested with a spoken Turkish question on a Hindi overlock video: correct transcription and answer in about 5 seconds.
+9. **Errors.** Every failure is shown in plain Turkish with a **Tekrar Dene** (retry) button. Failures covered: no internet, invalid link, video missing or not accessible, invalid or missing key, daily limit reached, and service busy. When a problem keeps happening, **Sorun bildir** (on the error card and in Settings) opens an e-mail with the app version, phone model and the last 25 logged events ([services/log.ts](services/log.ts)). The user only has to press send. The address comes from `EXPO_PUBLIC_SUPPORT_EMAIL` in `.env`.
 
 [services/pipeline.ts](services/pipeline.ts) wires these steps together. [services/gemini.ts](services/gemini.ts) holds the shared Gemini client and the textile-domain system instruction, which also carries the user's glossary.
 
@@ -92,11 +97,20 @@ Google does not tell a free API key how much quota is left; limits are only show
 
 A typical day of 5–10 short videos (about 30 minutes) needs about 5–15 requests. Re-watching a video uses none.
 
+## Roadmap
+
+Planned, not started:
+
+- **Machine manual assistant (RAG).** Let the user ask questions about his own machines in Turkish, answered from their manuals. For example: "Juki MO-6814'te lüper gerginliği kaç olmalı?"
+  - Manuals (PDFs, photographed pages) are added once.
+  - Answers quote the relevant page.
+  - Must stay free and work without a backend, like the rest of the app.
+
 ## Project structure
 
 ```
 App.tsx                  screen switching + share-intent handling
-screens/                 HomeScreen, WatchScreen, ResultScreen (reading), HistoryScreen, SettingsScreen
+screens/                 HomeScreen, WatchScreen, ResultScreen (reading), StepsScreen, AskScreen, HistoryScreen, SettingsScreen
 components/              YoutubeVideo (player), Button/Tile, Header, VideoCard, ProgressCard, ErrorCard, theme
 hooks/useShareIntent.ts  receives links shared from the YouTube app (APK only)
 services/
@@ -106,6 +120,9 @@ services/
   translate.ts           caption translation in batches
   geminiVideo.ts         Gemini YouTube-URL path, long-video sections
   dubController.ts       keeps the Turkish voice in step with the video (elastic sync)
+  assistant.ts           "Adımlar" steps and "Soru sor" answers from the translation
+  log.ts                 local event log and the "Sorun bildir" e-mail
+  updates.ts             checks for an over-the-air update at start
   voices.ts              phone voice + Piper voices (download, generate, play)
   quota.ts               remembers models whose daily quota is used up
   cache.ts               history / cache (AsyncStorage)
@@ -202,6 +219,25 @@ These need the APK:
 7. If the phone voice is silent, the phone has no Turkish text-to-speech voice. On Android, open *Settings → System → Language → Text-to-speech output*, then install Turkish for Google's speech engine. Alternatively, pick a natural voice.
 
 To update the app later, build again and install the new APK over the old one. History and settings are kept.
+
+## Updating the app without a new APK (EAS Update)
+
+The app checks for a newer version each time it starts. If there is one, it downloads it, shows "Uygulama güncelleniyor…" for a few seconds, and restarts into it ([services/updates.ts](services/updates.ts)).
+
+To send a change to the phones:
+
+```powershell
+npm run update -- "Kısa açıklama"
+```
+
+This runs `eas update --channel preview`. It bundles the JavaScript on your computer (reading `.env`) and publishes it. It is free for a few users.
+
+When a new APK is needed:
+- Only JavaScript changes travel this way. New native packages, new permissions or `app.json` plugin changes still need `npx eas-cli@latest build --platform android --profile preview`.
+- `runtimeVersion` follows the app version (`"version"` in `app.json`). An update only reaches APKs with the same version.
+  - **Before building a new APK for a native change, raise the version** (for example 1.0.0 → 1.1.0). Old APKs then stop receiving updates meant for the new native code.
+  - The *fingerprint* policy would do this automatically, but its hash differs between Windows and EAS's Linux builders, and the build stops with "Runtime version mismatch".
+- The first APK with `expo-updates` has to be installed by hand once.
 
 ## Tests and checks
 

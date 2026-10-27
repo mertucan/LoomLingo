@@ -29,7 +29,8 @@
       [
         "expo-audio",
         {
-          "recordAudioAndroid": false,
+          "microphonePermission": "Videoya sesli soru sormak için mikrofon kullanılır.",
+          "recordAudioAndroid": true,
           "enableBackgroundPlayback": false
         }
       ],
@@ -52,6 +53,13 @@
         "projectId": "4cc54627-093d-4a7f-bd5f-8e47592e92c6"
       }
     },
-    "icon": "./assets/icon.png"
+    "icon": "./assets/icon.png",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/4cc54627-093d-4a7f-bd5f-8e47592e92c6",
+      "checkAutomatically": "NEVER"
+    }
   }
 }

@@ -4,7 +4,7 @@ import WebView, { WebViewMessageEvent } from "react-native-webview";
 
 export type VideoStatus = { time: number; paused: boolean; ended: boolean; ad: boolean };
 export type YoutubeVideoHandle = { play: () => void; pause: () => void; seekTo: (seconds: number) => void; setMuted: (muted: boolean) => void };
-type Props = { videoId: string; width: number; height: number; muted: boolean; onStatus: (status: VideoStatus) => void; onError: () => void };
+type Props = { videoId: string; width: number; height: number; muted: boolean; startSeconds?: number; onStatus: (status: VideoStatus) => void; onError: () => void };
 
 /**
  * YouTube's embed page is opened directly in the WebView (not inside another
@@ -45,7 +45,7 @@ const script = (muted: boolean) => `(function () {
   return true;
 })(); true;`;
 
-export const YoutubeVideo = forwardRef<YoutubeVideoHandle, Props>(function YoutubeVideo({ videoId, width, height, muted, onStatus, onError }, ref) {
+export const YoutubeVideo = forwardRef<YoutubeVideoHandle, Props>(function YoutubeVideo({ videoId, width, height, muted, startSeconds = 0, onStatus, onError }, ref) {
   const web = useRef<WebView>(null);
   const run = (command: string) => web.current?.injectJavaScript(`window.__ll && window.__ll(${command}); true;`);
   useImperativeHandle(ref, () => ({
@@ -58,7 +58,7 @@ export const YoutubeVideo = forwardRef<YoutubeVideoHandle, Props>(function Youtu
       if (message.type === "error") onError(); else if (message.type === "status") onStatus(message);
     } catch { /* ignore foreign messages */ }
   };
-  const uri = `https://www.youtube.com/embed/${videoId}?playsinline=1&rel=0&iv_load_policy=3&controls=1&fs=0&hl=tr`;
+  const uri = `https://www.youtube.com/embed/${videoId}?playsinline=1&rel=0&iv_load_policy=3&controls=1&fs=0&hl=tr${startSeconds > 0 ? `&start=${Math.floor(startSeconds)}` : ""}`;
   return <WebView ref={web} source={{ uri, headers: { Referer: REFERER } }} style={[styles.web, { width, height }]} containerStyle={{ width, height, flex: 0 }}
     injectedJavaScript={script(muted)} onMessage={onMessage} javaScriptEnabled mediaPlaybackRequiresUserAction={false} allowsInlineMediaPlayback
     allowsFullscreenVideo={false} setSupportMultipleWindows={false} scrollEnabled={false} bounces={false}

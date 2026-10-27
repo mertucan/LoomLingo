@@ -27,12 +27,14 @@ export function batchByLength<T extends { original: string }>(items: T[], maxCha
 
 export type VideoSegment = { startSeconds: number; endSeconds: number };
 /**
- * Short videos go to Gemini in one request. Longer ones are processed in
- * fixed time windows so each response stays small and progress can be shown.
+ * The Gemini video path is split into short, equal sections. Asked for a long
+ * stretch at once, Gemini summarises. Measured on a 13-minute Hindi video
+ * against its caption track: one request gave about half the text, 5-minute
+ * sections 65-85 %, 3-minute sections about 95 %. Equal sizes avoid a tiny
+ * last section.
  */
-export function planVideoSegments(lengthSeconds: number | null, segmentSeconds = 600, singleRequestLimit = 1200): VideoSegment[] | null {
+export function planVideoSegments(lengthSeconds: number | null, segmentSeconds = 180, singleRequestLimit = 240): VideoSegment[] | null {
   if (!lengthSeconds || lengthSeconds <= singleRequestLimit) return null;
-  const segments: VideoSegment[] = [];
-  for (let start = 0; start < lengthSeconds; start += segmentSeconds) segments.push({ startSeconds: start, endSeconds: Math.min(start + segmentSeconds, lengthSeconds) });
-  return segments;
+  const count = Math.ceil(lengthSeconds / segmentSeconds); const size = lengthSeconds / count;
+  return Array.from({ length: count }, (_, i) => ({ startSeconds: Math.round(i * size), endSeconds: i === count - 1 ? lengthSeconds : Math.round((i + 1) * size) }));
 }

@@ -35,7 +35,7 @@ export type GeminiOptions = {
   /** Called before waiting out a per-minute rate limit. */
   onWait?: (seconds: number) => void;
 };
-export type Part = { text: string } | { file_data: { file_uri: string }; video_metadata?: { start_offset: string; end_offset: string } };
+export type Part = { text: string } | { file_data: { file_uri: string }; video_metadata?: { start_offset: string; end_offset: string } } | { inline_data: { mime_type: string; data: string } };
 
 type Failure = "daily-quota" | "rate-limit" | "key" | "video" | "server" | "bad-response" | "network";
 class GeminiFailure extends Error { constructor(public readonly kind: Failure, public readonly retryAfter = 0, public readonly limit?: number) { super(kind); } }

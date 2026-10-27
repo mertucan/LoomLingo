@@ -1,4 +1,5 @@
 import { chooseCaptionTrack } from "../services/transcript";
+import { mergeUntranslated } from "../services/translate";
 import { captionDensity, cuesToParagraphs, findCueIndex, groupCaptionLines, MAX_SPEECH_RATE, normalizeCues, parseTimestamp, planSpeech, splitLongCues, subtitlePieces } from "../utils/cues";
 import { languageName } from "../utils/languages";
 
@@ -74,4 +75,11 @@ test("splits a long cue and shares its time by text length", () => {
 test("keeps short cues as they are", () => {
   const short = { start: 0, end: 3, original: "a", turkish: "Kısa." };
   expect(splitLongCues([short])).toEqual([short]);
+});
+
+test("lines Gemini left out are merged into the line before", () => {
+  const c = (start: number, end: number, original: string, turkish = "") => ({ start, end, original, turkish });
+  expect(mergeUntranslated([{ ...c(0, 2, "a", "A") }, { ...c(2, 4, "b"), missing: true }, { ...c(4, 6, "c", "C") }]))
+    .toEqual([c(0, 4, "a b", "A"), c(4, 6, "c", "C")]);
+  expect(mergeUntranslated([{ ...c(0, 2, "a"), missing: true }, { ...c(2, 4, "b", "B") }])).toEqual([c(0, 4, "a b", "B")]);
 });

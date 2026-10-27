@@ -8,6 +8,7 @@ import { ProgressCard } from "../components/ProgressCard";
 import { card, colors, font, radius } from "../components/theme";
 import { VideoCard } from "../components/VideoCard";
 import { getHistoryItems } from "../services/cache";
+import { logEvent } from "../services/log";
 import { translateVideo } from "../services/pipeline";
 import { quotaUsedUpUntil } from "../services/quota";
 import { TranslationResult, UserFacingError } from "../types";
@@ -31,7 +32,10 @@ export function HomeScreen({ sharedText, onSharedTextHandled, onResult, onHistor
     if (!parsed) { setError(raw.trim() ? "Bu bir YouTube linki değil." : "Önce YouTube'dan bir link kopyalayın."); return; }
     busy.current = true;
     try { const result = await translateVideo(parsed, { onProgress: setProgress, confirm }); if (result) onResult(result); }
-    catch (e) { setError(e instanceof UserFacingError ? e.userMessage : "Bir sorun oluştu. Tekrar deneyin."); }
+    catch (e) {
+      logEvent(`Çeviri ${parsed.videoId}: ${e instanceof UserFacingError ? e.userMessage : e instanceof Error ? e.message : String(e)}`);
+      setError(e instanceof UserFacingError ? e.userMessage : "Bir sorun oluştu. Tekrar deneyin.");
+    }
     finally { busy.current = false; setProgress(null); refresh(); }
   }, [onResult, refresh]);
   useEffect(() => { if (sharedText) { onSharedTextHandled(); setLink(sharedText); void begin(sharedText); } }, [sharedText, onSharedTextHandled, begin]);
@@ -47,7 +51,7 @@ export function HomeScreen({ sharedText, onSharedTextHandled, onResult, onHistor
     <Text style={styles.hint}>YouTube'da Paylaş → Bağlantıyı kopyala, sonra bu butona basın.</Text>
 
     {progress && <ProgressCard message={progress} />}
-    {error && !progress && <ErrorCard message={error} onRetry={() => void begin(link)} />}
+    {error && !progress && <ErrorCard message={error} onRetry={() => void begin(link)} reportable />}
     {usedUpUntil && !progress && !error && <ErrorCard tone="warning" message={`Bugünkü çeviri hakkı doldu, ${usedUpUntil} yenilenir. Geçmişteki videolar izlenebilir.`} />}
 
     {last && !progress && <><Text style={styles.section}>Son video</Text><VideoCard item={last} detail={`${last.sourceLanguage} · Türkçe`} onPress={() => onResult(last)} /></>}

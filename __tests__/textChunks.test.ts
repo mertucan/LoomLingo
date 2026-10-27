@@ -11,8 +11,9 @@ test("keeps an oversized paragraph in its own batch", () => expect(batchByLength
 
 test("short or unknown-length videos use one request", () => {
   expect(planVideoSegments(null)).toBeNull();
-  expect(planVideoSegments(900)).toBeNull();
+  expect(planVideoSegments(240)).toBeNull();
 });
-test("long videos are split into 10 minute sections", () => {
-  expect(planVideoSegments(1500)).toEqual([{ startSeconds: 0, endSeconds: 600 }, { startSeconds: 600, endSeconds: 1200 }, { startSeconds: 1200, endSeconds: 1500 }]);
+test("longer videos are split into equal sections of about three minutes", () => {
+  expect(planVideoSegments(771)).toEqual([0, 154, 308, 463, 617].map((startSeconds, i, all) => ({ startSeconds, endSeconds: all[i + 1] ?? 771 })));
+  expect(planVideoSegments(1307)?.length).toBe(8);
 });

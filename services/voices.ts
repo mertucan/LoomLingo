@@ -11,7 +11,10 @@ export interface DubVoice {
   /** Characters per second at rate 1.0, used to plan speech timing. */
   readonly charsPerSecond: number;
   isReady(key: string): boolean;
-  prepare(key: string, text: string, rate: number): Promise<Clip>;
+  /** `urgent` clips (about to be spoken) jump ahead of background preparation. */
+  prepare(key: string, text: string, rate: number, urgent?: boolean): Promise<Clip>;
+  /** Natural voices only: generate every clip in the background, reporting how many are ready. */
+  prepareAll?(items: Array<{ key: string; text: string; rate: number }>, onProgress: (ready: number, total: number) => void): void;
   play(clip: Clip): Promise<void>;
   stop(): void;
   dispose(): void;
@@ -113,22 +116,43 @@ export async function createPiperVoice(id: PiperVoiceId, videoId: string): Promi
   const clipDir = `${FileSystem.cacheDirectory}dub/${videoId}/${id}/`;
   await FileSystem.makeDirectoryAsync(clipDir, { intermediates: true }).catch(() => undefined);
   const clips = new Map<string, Promise<Clip>>(); const ready = new Set<string>();
-  let queue: Promise<unknown> = Promise.resolve();
+  type Task = { key: string; text: string; rate: number; uri: string; resolve: (clip: Clip) => void; reject: (error: unknown) => void };
+  // One clip is generated at a time; urgent tasks are put at the front of the line.
+  const pending: Task[] = []; let working = false;
   let current: { stop: () => void } | null = null; let disposed = false;
-  return {
+  const shutDown = () => { for (const task of pending.splice(0)) task.reject(new Error("disposed")); void engine.destroy().catch(() => undefined); };
+  const work = async () => {
+    if (working) return; working = true;
+    while (pending.length && !disposed) {
+      const task = pending.shift() as Task;
+      try {
+        if (!(await exists(task.uri))) await sherpa.saveAudioToFile(await engine.generateSpeech(task.text, { speed: task.rate }), plainPath(task.uri));
+        ready.add(task.key); task.resolve({ key: task.key, text: task.text, rate: task.rate, uri: task.uri });
+      } catch (error) { clips.delete(task.key); task.reject(error); }
+    }
+    working = false;
+    if (disposed) shutDown();
+  };
+  const voice: DubVoice = {
     charsPerSecond: PIPER_VOICES[id].charsPerSecond,
     isReady: key => ready.has(key),
-    prepare(key, text, rate) {
-      const known = clips.get(key); if (known) return known;
+    prepare(key, text, rate, urgent = true) {
+      const known = clips.get(key);
+      if (known) {
+        const index = pending.findIndex(t => t.key === key);
+        if (urgent && index > 0) pending.unshift(...pending.splice(index, 1));
+        return known;
+      }
       const uri = `${clipDir}${hash(`${key}|${text}`)}-${Math.round(rate * 100)}.wav`;
-      const clip = queue.then(async (): Promise<Clip> => {
-        if (disposed) throw new Error("disposed");
-        if (!(await exists(uri))) await sherpa.saveAudioToFile(await engine.generateSpeech(text, { speed: rate }), plainPath(uri));
-        ready.add(key); return { key, text, rate, uri };
-      });
-      queue = clip.catch(() => undefined); clips.set(key, clip);
-      clip.catch(() => clips.delete(key));
+      const clip = new Promise<Clip>((resolve, reject) => { const task = { key, text, rate, uri, resolve, reject }; if (urgent) pending.unshift(task); else pending.push(task); });
+      clips.set(key, clip); clip.catch(() => undefined);
+      void work();
       return clip;
+    },
+    prepareAll(items, onProgress) {
+      let done = items.filter(i => ready.has(i.key)).length; const total = items.length;
+      onProgress(done, total);
+      for (const item of items) if (!ready.has(item.key)) void voice.prepare(item.key, item.text, item.rate, false).then(() => onProgress(++done, total), () => undefined);
     },
     play: clip => new Promise<void>(resolve => {
       if (!clip.uri) { resolve(); return; }
@@ -140,8 +164,9 @@ export async function createPiperVoice(id: PiperVoiceId, videoId: string): Promi
       player.play();
     }),
     stop: () => current?.stop(),
-    dispose: () => { disposed = true; current?.stop(); void queue.then(() => engine.destroy()).catch(() => undefined); },
+    dispose: () => { disposed = true; current?.stop(); if (!working) shutDown(); },
   };
+  return voice;
 }
 
 /** The voice chosen in Settings, falling back to the phone voice when the natural voice is unavailable. */

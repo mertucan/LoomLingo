@@ -1,9 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Updates from "expo-updates";
+import app from "../app.json";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "../components/Button";
 import { Header } from "../components/Header";
 import { card, colors, font, radius } from "../components/theme";
+import { canReport, logEvent, sendReport } from "../services/log";
 import { getSettings, saveSettings } from "../services/settings";
 import { createVoice, installPiperVoice, isPiperInstalled, isPiperSupported, PIPER_SIZE_MB, PIPER_VOICES, PiperVoiceId, removePiperVoice } from "../services/voices";
 import { Settings, UserFacingError, VoiceId } from "../types";
@@ -29,7 +32,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
     if (voice === "device" || installed[voice]) { await change({ voice }); return; }
     setDownloading({ id: voice, progress: 0 });
     try { await installPiperVoice(voice, progress => setDownloading({ id: voice, progress })); await refreshVoices(); await change({ voice }); }
-    catch (e) { Alert.alert("İndirilemedi", e instanceof UserFacingError ? e.userMessage : "Tekrar deneyin."); }
+    catch (e) { logEvent(`Ses indirilemedi (${voice}): ${e instanceof Error ? e.message : String(e)}`); Alert.alert("İndirilemedi", e instanceof UserFacingError ? e.userMessage : "Tekrar deneyin."); }
     finally { setDownloading(null); }
   };
   const removeVoice = (id: PiperVoiceId) => Alert.alert("Ses silinsin mi?", `${PIPER_SIZE_MB} MB yer açılır.`, [{ text: "Vazgeç", style: "cancel" }, { text: "Sil", style: "destructive", onPress: () => void removePiperVoice(id).then(refreshVoices) }]);
@@ -85,6 +88,10 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
         <Pressable onPress={() => void change({ glossary: settings.glossary.filter(x => x.id !== item.id) })} hitSlop={10} accessibilityLabel="Sil"><Ionicons name="trash-outline" size={24} color={colors.danger} /></Pressable>
       </View>
     </View>)}</View>}
+
+    <Text style={styles.section}>Yardım</Text>
+    {canReport() && <Button icon="mail-outline" label="Sorun Bildir" kind="secondary" onPress={() => void sendReport().then(ok => { if (!ok) Alert.alert("E-posta uygulaması bulunamadı"); })} />}
+    <Text style={styles.version}>Sürüm {app.expo.version}{Updates.updateId ? ` · ${Updates.createdAt?.toLocaleDateString("tr-TR") ?? ""} güncellemesi` : ""}</Text>
   </ScrollView></View>;
 }
 const styles = StyleSheet.create({
@@ -103,5 +110,6 @@ const styles = StyleSheet.create({
   equals: { fontSize: font.heading, fontWeight: "800", color: colors.muted },
   add: { width: 58, height: 58, borderRadius: radius, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   termRow: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 56 },
+  version: { fontSize: font.caption, color: colors.muted, textAlign: "center", marginTop: 8 },
   termText: { flex: 1, fontSize: font.small, fontWeight: "600", color: colors.text }, termArrow: { color: colors.muted },
 });

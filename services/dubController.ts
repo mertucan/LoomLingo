@@ -28,6 +28,12 @@ export class DubController {
   }
 
   plan(index: number): SpeechPlan | undefined { return this.plans[index]; }
+  /** Natural voices: generate every sentence in the background so playback rarely waits. */
+  prepareAll(onProgress: (ready: number, total: number) => void): boolean {
+    if (!this.voice.prepareAll) return false;
+    this.voice.prepareAll(this.plans.map((plan, i) => ({ key: String(i), text: plan.text, rate: plan.rate })), onProgress);
+    return true;
+  }
   get waiting(): DubView["waiting"] { return this.held; }
 
   tick(time: number): void {

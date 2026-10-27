@@ -34,6 +34,7 @@ const PROMPT = `Videodaki konuşmayı dinle, gerektiğinde görüntüyü de ince
 - original: konuşmanın orijinal dilindeki yazımı.
 - turkish: doğal ve eksiksiz Türkçe çevirisi.
 - spoken: turkish metni satırın süresinde rahatça okunamayacak kadar uzunsa (saniye başına 14 karakterden fazla) doldur; aynı anlamı veren, sesli okunacak kısa Türkçe sürüm. Teknik terimleri ve sayıları koru. Kısaysa boş bırak.
+Konuşmayı özetleme ya da kısaltma: söylenen her cümleyi sırasıyla ve eksiksiz yaz; tekrarlar ve "bakın", "tamam mı" gibi sözler de dahil.
 Konuşma yoksa cues boş olsun.`;
 
 const mmss = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;

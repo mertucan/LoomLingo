@@ -19,21 +19,26 @@ export type PipelineCallbacks = {
   confirm: (title: string, message: string) => Promise<boolean>;
 };
 
+/** Gemini settings shared by translation, steps and questions; stops early when the key is missing or the day's quota is used up. */
+export async function geminiOptions(onProgress?: (message: string) => void): Promise<GeminiOptions> {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new UserFacingError("Uygulamada Gemini anahtarı yok. Uygulamanın yeniden kurulması gerekiyor.", "key");
+  const usedUpUntil = await quotaUsedUpUntil();
+  if (usedUpUntil) throw new UserFacingError(`Bugünkü ücretsiz çeviri hakkı doldu. ${usedUpUntil} yenilenir. Çevrilmiş videoları Geçmiş'ten izleyebilirsiniz.`, "quota");
+  const settings = await getSettings();
+  return {
+    apiKey, glossary: settings.glossary, onDailyQuota: recordDailyQuota, isExhausted: isExhaustedToday,
+    onWait: seconds => onProgress?.(`Servis yoğun, ${seconds} saniye bekleniyor…`),
+  };
+}
+
 /** Cache first, then captions + Gemini text translation, then Gemini video input. */
 export async function translateVideo(link: ParsedYoutubeLink, { onProgress, confirm }: PipelineCallbacks): Promise<TranslationResult | null> {
   onProgress("Daha önce çevrilmiş mi diye bakılıyor…");
   const saved = await getCached(link.videoId);
   if (saved?.cues) return saved;
 
-  const apiKey = getApiKey();
-  if (!apiKey) throw new UserFacingError("Uygulamada Gemini anahtarı yok. Uygulamanın yeniden kurulması gerekiyor.", "key");
-  const usedUpUntil = await quotaUsedUpUntil();
-  if (usedUpUntil) throw new UserFacingError(`Bugünkü ücretsiz çeviri hakkı doldu. ${usedUpUntil} yenilenir. Çevrilmiş videoları Geçmiş'ten izleyebilirsiniz.`, "quota");
-  const settings = await getSettings();
-  const options: GeminiOptions = {
-    apiKey, glossary: settings.glossary, onDailyQuota: recordDailyQuota, isExhausted: isExhaustedToday,
-    onWait: seconds => onProgress(`Çeviri servisi yoğun, ${seconds} saniye bekleniyor…`),
-  };
+  const options = await geminiOptions(onProgress);
 
   onProgress("Video bilgileri alınıyor…");
   const info = await getVideoInfo(link.videoId);

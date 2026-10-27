@@ -125,3 +125,13 @@ export function planSpeech(cue: Cue, nextStart: number | undefined, baseRate: nu
 
 /** Rough character budget for the short spoken version of a cue. */
 export const spokenBudget = (seconds: number) => Math.max(12, Math.floor(seconds * 14));
+
+const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+/** The Turkish translation as "[m:ss] text" lines: the context Gemini gets for steps and questions. */
+export function transcriptForPrompt(cues: Cue[], maxChars = 60000): string {
+  const lines = cues.map(c => `[${clock(c.start)}] ${c.turkish}`);
+  let text = lines.join("\n");
+  // Very long videos: keep every other line rather than cutting the end off.
+  for (let step = 2; text.length > maxChars && step < 10; step++) text = lines.filter((_, i) => i % step === 0).join("\n");
+  return text;
+}
