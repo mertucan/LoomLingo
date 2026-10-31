@@ -64,7 +64,8 @@ export function mergeUntranslated(cues: Array<Cue & { missing?: boolean }>): Cue
 /** Translates caption cues batch by batch, keeping their timing. */
 export async function translateCaptions(options: GeminiOptions, transcript: CaptionTranscript, onProgress: (message: string) => void): Promise<{ sourceLanguage: string; cues: Cue[] }> {
   if (isTurkish(transcript.languageCode)) return { sourceLanguage: "Türkçe", cues: transcript.cues.map(c => ({ ...c, turkish: c.original })) };
-  const batches = batchByLength(transcript.cues);
+  // One request covers about 20 minutes of speech; larger batches came back complete in tests and save daily quota.
+  const batches = batchByLength(transcript.cues, 20_000);
   const cues: Array<Cue & { missing?: boolean }> = []; let detected = languageName(transcript.languageCode);
   for (const [index, batch] of batches.entries()) {
     onProgress(batches.length > 1 ? `Altyazı Türkçeye çevriliyor… (Bölüm ${index + 1}/${batches.length})` : "Altyazı Türkçeye çevriliyor…");

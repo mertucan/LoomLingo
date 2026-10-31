@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
-import app from "../app.json";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "../components/Button";
@@ -8,6 +7,7 @@ import { Header } from "../components/Header";
 import { card, colors, font, radius } from "../components/theme";
 import { canReport, logEvent, sendReport } from "../services/log";
 import { getSettings, saveSettings } from "../services/settings";
+import { currentRelease } from "../services/updates";
 import { createVoice, installPiperVoice, isPiperInstalled, isPiperSupported, PIPER_SIZE_MB, PIPER_VOICES, PiperVoiceId, removePiperVoice } from "../services/voices";
 import { Settings, UserFacingError, VoiceId } from "../types";
 
@@ -39,7 +39,9 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
   const playSample = async () => {
     setSampling(true);
     const { voice } = await createVoice(settings.voice, "sample");
-    try { await voice.play(await voice.prepare("sample", SAMPLE, settings.speechRate)); } finally { voice.dispose(); setSampling(false); }
+    try { await voice.play(await voice.prepare("sample", SAMPLE, settings.speechRate)); }
+    catch { Alert.alert("Ses çalınamadı", "Başka bir ses seçip tekrar deneyin."); }
+    finally { voice.dispose(); setSampling(false); }
   };
   const saveTerm = async () => {
     if (!source.trim() || !turkish.trim()) return;
@@ -91,7 +93,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 
     <Text style={styles.section}>Yardım</Text>
     {canReport() && <Button icon="mail-outline" label="Sorun Bildir" kind="secondary" onPress={() => void sendReport().then(ok => { if (!ok) Alert.alert("E-posta uygulaması bulunamadı"); })} />}
-    <Text style={styles.version}>Sürüm {app.expo.version}{Updates.updateId ? ` · ${Updates.createdAt?.toLocaleDateString("tr-TR") ?? ""} güncellemesi` : ""}</Text>
+    <Text style={styles.version}>Sürüm v{currentRelease}{Updates.createdAt && Updates.updateId ? ` · ${Updates.createdAt.toLocaleDateString("tr-TR")}` : ""}</Text>
   </ScrollView></View>;
 }
 const styles = StyleSheet.create({

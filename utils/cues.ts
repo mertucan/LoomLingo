@@ -115,10 +115,16 @@ export const MAX_SPEECH_RATE = 1.25;
  * still too long is handled by briefly pausing the video.
  * `charsPerSecond` is the voice's speed at rate 1.0.
  */
+/** What the voice should say: caption notes such as "[Müzik]" or "[anlaşılmadı]" and music signs are left out. */
+export const speakable = (text: string) => text.replace(/\[[^\]]*\]|♪+/g, " ").replace(/\s+/g, " ").trim();
+
 export function planSpeech(cue: Cue, nextStart: number | undefined, baseRate: number, charsPerSecond: number): SpeechPlan {
   const slot = Math.max(0.8, (nextStart ?? cue.end + 1.5) - cue.start);
   const fits = (text: string) => text.length / (charsPerSecond * baseRate) <= slot;
-  const text = !fits(cue.turkish) && cue.spoken?.trim() ? cue.spoken.trim() : cue.turkish;
+  const full = speakable(cue.turkish); const short = speakable(cue.spoken ?? "");
+  // Nothing to say (only "[Müzik]" and the like): the cue stays silent.
+  if (!full) return { text: "", rate: baseRate };
+  const text = !fits(full) && short ? short : full;
   const needed = text.length / (charsPerSecond * slot);
   return { text, rate: Math.round(Math.min(Math.max(baseRate, needed), Math.max(baseRate, MAX_SPEECH_RATE)) * 100) / 100 };
 }

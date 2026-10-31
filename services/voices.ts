@@ -11,7 +11,7 @@ export interface DubVoice {
   /** Characters per second at rate 1.0, used to plan speech timing. */
   readonly charsPerSecond: number;
   isReady(key: string): boolean;
-  /** `urgent` clips (about to be spoken) jump ahead of background preparation. */
+  /** `urgent` clips (about to be spoken) jump ahead of background preparation. `play` rejects when the voice fails. */
   prepare(key: string, text: string, rate: number, urgent?: boolean): Promise<Clip>;
   /** Natural voices only: generate every clip in the background, reporting how many are ready. */
   prepareAll?(items: Array<{ key: string; text: string; rate: number }>, onProgress: (ready: number, total: number) => void): void;
@@ -28,11 +28,13 @@ export function createDeviceVoice(): DubVoice {
     charsPerSecond: 14,
     isReady: () => true,
     prepare: async (key, text, rate) => ({ key, text, rate }),
-    play: clip => new Promise<void>(resolve => {
+    // Rejects when the phone's speech engine reports an error, so a broken voice can be noticed.
+    play: clip => new Promise<void>((resolve, reject) => {
       let done = false;
       const end = () => { if (!done) { done = true; finish = null; resolve(); } };
+      const fail = (error: Error) => { if (!done) { done = true; finish = null; reject(error); } };
       finish = end;
-      Speech.speak(clip.text, { language: "tr-TR", rate: clip.rate, onDone: end, onStopped: end, onError: end });
+      Speech.speak(clip.text, { language: "tr-TR", rate: clip.rate, onDone: end, onStopped: end, onError: fail });
     }),
     stop: () => { void Speech.stop(); finish?.(); },
     dispose: () => { void Speech.stop(); finish?.(); },
@@ -154,13 +156,18 @@ export async function createPiperVoice(id: PiperVoiceId, videoId: string): Promi
       onProgress(done, total);
       for (const item of items) if (!ready.has(item.key)) void voice.prepare(item.key, item.text, item.rate, false).then(() => onProgress(++done, total), () => undefined);
     },
-    play: clip => new Promise<void>(resolve => {
+    play: clip => new Promise<void>((resolve, reject) => {
       if (!clip.uri) { resolve(); return; }
       const player = createAudioPlayer({ uri: clip.uri });
       let done = false;
-      const end = () => { if (done) return; done = true; subscription.remove(); player.remove(); current = null; resolve(); };
-      const subscription = player.addListener("playbackStatusUpdate", status => { if (status.didJustFinish) end(); });
-      current = { stop: () => { player.pause(); end(); } };
+      // A clip that never reports its end counts as a failure instead of stalling the video.
+      const limit = setTimeout(() => finish(new Error("playback did not finish")), Math.max(8_000, 3_000 * clip.text.length / (PIPER_VOICES[id].charsPerSecond * clip.rate)));
+      const finish = (error?: Error) => {
+        if (done) return; done = true; clearTimeout(limit); subscription.remove(); player.remove(); current = null;
+        if (error) reject(error); else resolve();
+      };
+      const subscription = player.addListener("playbackStatusUpdate", status => { if (status.didJustFinish) finish(); });
+      current = { stop: () => { player.pause(); finish(); } };
       player.play();
     }),
     stop: () => current?.stop(),

@@ -83,3 +83,9 @@ test("lines Gemini left out are merged into the line before", () => {
     .toEqual([c(0, 4, "a b", "A"), c(4, 6, "c", "C")]);
   expect(mergeUntranslated([{ ...c(0, 2, "a"), missing: true }, { ...c(2, 4, "b", "B") }])).toEqual([c(0, 4, "a b", "B")]);
 });
+
+test("the voice leaves out caption notes and stays silent when nothing is left", () => {
+  expect(planSpeech(cue(0, 4, "[Müzik] Merhaba arkadaşlar"), 5, 1, 14).text).toBe("Merhaba arkadaşlar");
+  expect(planSpeech(cue(0, 4, "[Müzik]"), 5, 1, 14).text).toBe("");
+  expect(planSpeech(cue(0, 4, "♪♪ [anlaşılmadı]"), 5, 1, 14).text).toBe("");
+});

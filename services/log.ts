@@ -40,7 +40,7 @@ export async function sendReport(): Promise<boolean> {
   const update = Updates.updateId ? `${Updates.updateId.slice(0, 8)} (${Updates.createdAt?.toISOString().slice(0, 16).replace("T", " ") ?? "?"})` : "yok";
   const body = [
     "Sorunu kısaca yazabilirsiniz:", "", "", "———",
-    `Uygulama: ${app.expo.version} · güncelleme: ${update}`,
+    `Uygulama: v${app.expo.extra.release} (çekirdek ${app.expo.version}) · güncelleme: ${update}`,
     `Telefon: ${device ? `${device.Brand} ${device.Model}, Android ${device.Release}` : Platform.OS}`,
     `Ses: ${settings.voice}, hız ${settings.speechRate}`,
     "", "Son olaylar:", ...(entries.length ? entries.slice(-25).reverse() : ["(kayıt yok)"]),

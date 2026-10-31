@@ -2,10 +2,11 @@ import { ErrorCode, GlossaryEntry, UserFacingError } from "../types";
 
 /**
  * Tried in order. A model whose free daily quota is used up is skipped and the
- * next one is tried; each model has its own free-tier quota. All three list
- * video understanding and are available to free AI Studio keys (October 2026).
+ * next one is tried; each model has its own free-tier quota, so more models
+ * mean more translations per day. All of these answered a free AI Studio key
+ * (checked 31 October 2026); the 2.5 models are closed to new users.
  */
-export const MODELS = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"] as const;
+export const MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.8-flash"] as const;
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 const MAX_WAIT_SECONDS = 60;
 

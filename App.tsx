@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, BackHandler, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, AppState, BackHandler, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { colors, font } from "./components/theme";
 import { useShareIntent } from "./hooks/useShareIntent";
 import { removeCached } from "./services/cache";
 import { installCrashLogging } from "./services/log";
-import { applyUpdateIfAvailable } from "./services/updates";
+import { findNewRelease, installNewRelease, setUpUpdates } from "./services/updates";
 import { AskScreen } from "./screens/AskScreen";
 import { HomeScreen } from "./screens/HomeScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
@@ -26,6 +26,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("home"); const [result, setResult] = useState<TranslationResult | null>(null);
   const [sharedText, setSharedText] = useState<string | null>(null);
   const [startAt, setStartAt] = useState(0); const [updating, setUpdating] = useState(false);
+  const [newRelease, setNewRelease] = useState<string | null>(null);
   const watch = (item: TranslationResult) => { setResult(item); setStartAt(0); setPage("watch"); };
   const home = () => setPage("home");
   const leaveWatch = (target: Page) => (time: number) => { setStartAt(time); setPage(target); };
@@ -44,12 +45,23 @@ export default function App() {
   }, []);
   // Upright everywhere; only the watch screen's "Büyük Ekran" turns the phone sideways.
   useEffect(() => { void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined); }, []);
-  useEffect(() => { void applyUpdateIfAvailable(() => setUpdating(true)).finally(() => setUpdating(false)); }, []);
+  // Updates: notification set-up once, and a check at start and whenever the app comes back to the screen.
+  useEffect(() => {
+    void setUpUpdates();
+    const check = () => void findNewRelease().then(setNewRelease);
+    check();
+    const subscription = AppState.addEventListener("change", state => { if (state === "active") check(); });
+    return () => subscription.remove();
+  }, []);
+  const installUpdate = () => {
+    setUpdating(true);
+    void installNewRelease().catch(() => { setUpdating(false); Alert.alert("Güncellenemedi", "İnternet bağlantısını kontrol edip tekrar deneyin."); });
+  };
   useShareIntent(useCallback((text: string) => { setSharedText(text); setPage("home"); }, []));
 
   if (updating) return <View style={styles.updating}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.updatingText}>Uygulama güncelleniyor…</Text></View>;
   return <SafeAreaProvider><SafeAreaView style={styles.safe}><StatusBar style="dark" />
-    {page === "home" && <HomeScreen sharedText={sharedText} onSharedTextHandled={() => setSharedText(null)} onResult={watch} onHistory={() => setPage("history")} onSettings={() => setPage("settings")} />}
+    {page === "home" && <HomeScreen newRelease={newRelease} onInstallUpdate={installUpdate} sharedText={sharedText} onSharedTextHandled={() => setSharedText(null)} onResult={watch} onHistory={() => setPage("history")} onSettings={() => setPage("settings")} />}
     {page === "history" && <HistoryScreen onOpen={watch} onBack={home} />}
     {page === "settings" && <SettingsScreen onBack={home} />}
     {page === "watch" && result && <WatchScreen result={result} startAt={startAt} onBack={home} onRead={leaveWatch("read")} onSteps={leaveWatch("steps")} onAsk={leaveWatch("ask")} onRetranslate={() => retranslate(result)} />}

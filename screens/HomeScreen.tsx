@@ -17,8 +17,8 @@ import { parseYoutubeLink } from "../utils/youtubeLink";
 const confirm = (title: string, message: string) => new Promise<boolean>(resolve =>
   Alert.alert(title, message, [{ text: "Hayır", style: "cancel", onPress: () => resolve(false) }, { text: "Evet", onPress: () => resolve(true) }], { cancelable: true, onDismiss: () => resolve(false) }));
 
-type Props = { sharedText: string | null; onSharedTextHandled: () => void; onResult: (r: TranslationResult) => void; onHistory: () => void; onSettings: () => void };
-export function HomeScreen({ sharedText, onSharedTextHandled, onResult, onHistory, onSettings }: Props) {
+type Props = { newRelease: string | null; onInstallUpdate: () => void; sharedText: string | null; onSharedTextHandled: () => void; onResult: (r: TranslationResult) => void; onHistory: () => void; onSettings: () => void };
+export function HomeScreen({ newRelease, onInstallUpdate, sharedText, onSharedTextHandled, onResult, onHistory, onSettings }: Props) {
   const [link, setLink] = useState(""); const [progress, setProgress] = useState<string | null>(null); const [error, setError] = useState<string | null>(null);
   const [usedUpUntil, setUsedUpUntil] = useState<string | null>(null); const [last, setLast] = useState<TranslationResult | null>(null);
   const busy = useRef(false);
@@ -47,6 +47,10 @@ export function HomeScreen({ sharedText, onSharedTextHandled, onResult, onHistor
       <View><Text style={styles.title}>Loom Lingo</Text><Text style={styles.subtitle}>YouTube videolarını Türkçe izleyin</Text></View>
     </View>
 
+    {newRelease && <Pressable onPress={onInstallUpdate} accessibilityRole="button" accessibilityLabel={`Yeni sürüm v${newRelease} hazır. Güncellemek için dokunun.`} style={({ pressed }) => [styles.update, pressed && { opacity: 0.8 }]}>
+      <Ionicons name="cloud-download-outline" size={28} color={colors.onPrimary} />
+      <View style={styles.updateText}><Text style={styles.updateTitle}>Yeni sürüm hazır (v{newRelease})</Text><Text style={styles.updateBody}>Güncellemek için dokunun</Text></View>
+    </Pressable>}
     <Button size="large" icon="clipboard-outline" label="Linki Yapıştır ve Başla" onPress={() => void pasteAndStart()} disabled={!!progress} />
     <Text style={styles.hint}>YouTube'da Paylaş → Bağlantıyı kopyala, sonra bu butona basın.</Text>
 
@@ -76,5 +80,7 @@ const styles = StyleSheet.create({
   linkRow: { flexDirection: "row", gap: 10, marginVertical: 6 },
   input: { ...card, flex: 1, minWidth: 0, minHeight: 60, paddingHorizontal: 16, color: colors.text, fontSize: font.small },
   go: { width: 60, minHeight: 60, borderRadius: radius, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  update: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.success, borderRadius: radius, padding: 16, marginBottom: 14 },
+  updateText: { flex: 1 }, updateTitle: { color: colors.onPrimary, fontSize: font.body, fontWeight: "800" }, updateBody: { color: colors.onPrimary, fontSize: font.small },
   bottom: { marginTop: "auto", paddingTop: 22 },
 });

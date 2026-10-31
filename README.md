@@ -40,7 +40,11 @@ link ─► local history (cache) ─► YouTube captions ─► Gemini text tra
    - the voice may use the time until the next cue begins;
    - it uses a shorter "spoken" version from Gemini when the full line would not fit;
    - it speeds up to at most 1.25×;
-   - if it still runs over, **the video pauses briefly** until the sentence ends.
+   - it may run up to 1.5 seconds behind the picture;
+   - only beyond that does **the video pause briefly** ("Türkçe cümle tamamlanıyor…") until the sentence ends.
+   - Caption notes such as "[Müzik]" or "[anlaşılmadı]" are shown but never read aloud.
+   - If the voice fails twice in a row, a popup says so, the video pauses, and after "Tamam" it continues with subtitles only and its own sound. Tapping "Türkçe ses" tries the voice again.
+   - Watching never uses Gemini quota; the voice is made on the phone.
 
    Voice and picture never drift apart. In tests with real videos, the pauses added 1–5 % to the running time.
 6. **Voice prepared in advance.** With a natural voice, the watch screen starts generating every sentence in the background as soon as it opens ("Türkçe ses hazırlanıyor: %40"). Sentences about to be spoken jump the queue. Clips are kept per video, so a second viewing does not wait.
@@ -80,7 +84,7 @@ Tested end to end with real videos:
 
 ## Gemini models and free-tier limits
 
-The app uses `gemini-3.5-flash-lite`, then `gemini-3.5-flash`, then `gemini-3.8-flash`. When one model's free **daily** quota runs out, the next model is tried automatically, because each model has its own quota. Per-minute rate limits are waited out, using the delay Google suggests (up to 60 s). Temporary server errors are retried.
+The app uses `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-3.5-flash`, `gemini-3.6-flash` and `gemini-3.8-flash`, in that order. Caption translations go in batches of up to 20,000 characters, so a typical video costs one request. When one model's free **daily** quota runs out, the next model is tried automatically, because each model has its own quota. Per-minute rate limits are waited out, using the delay Google suggests (up to 60 s). Temporary server errors are retried.
 
 Free-tier facts from Google's documentation (subject to change):
 - YouTube URL input is limited to **8 hours of YouTube video per day** in total.
@@ -222,22 +226,26 @@ To update the app later, build again and install the new APK over the old one. H
 
 ## Updating the app without a new APK (EAS Update)
 
-The app checks for a newer version each time it starts. If there is one, it downloads it, shows "Uygulama güncelleniyor…" for a few seconds, and restarts into it ([services/updates.ts](services/updates.ts)).
-
-To send a change to the phones:
+Releases are numbered `extra.release` in `app.json` (v1.1.0, v1.1.1, …). To send a change to the phones:
 
 ```powershell
 npm run update -- "Kısa açıklama"
 ```
 
-This runs `eas update --channel preview`. It bundles the JavaScript on your computer (reading `.env`) and publishes it. It is free for a few users.
+[scripts/publish-update.mjs](scripts/publish-update.mjs) raises the release number (1.1.0 → 1.1.1) and runs `eas update --channel preview`. It bundles the JavaScript on your computer, reading `.env`. If publishing fails, the number is put back.
+
+On the phones ([services/updates.ts](services/updates.ts)):
+- **App closed or in the background.** About once an hour (Android decides the exact time, and it survives restarts), a background task checks for a newer release. If there is one, it downloads it and shows a notification: **"Loom Lingo v1.1.1 hazır — Güncellemek için dokunun."** Tapping it opens the app on the new version.
+- **App open.** A green "Yeni sürüm hazır (v1.1.1)" banner appears on the home screen. Tapping it updates, which takes a few seconds.
+- A release downloaded in the background is also used automatically at the next start.
+- Settings shows the running release ("Sürüm v1.1.1").
+- Notification permission is asked once at the first start.
 
 When a new APK is needed:
-- Only JavaScript changes travel this way. New native packages, new permissions or `app.json` plugin changes still need `npx eas-cli@latest build --platform android --profile preview`.
-- `runtimeVersion` follows the app version (`"version"` in `app.json`). An update only reaches APKs with the same version.
-  - **Before building a new APK for a native change, raise the version** (for example 1.0.0 → 1.1.0). Old APKs then stop receiving updates meant for the new native code.
+- Only JavaScript changes travel this way. New native packages, new permissions or `app.json` plugin changes need a new APK: `npx eas-cli@latest build --platform android --profile preview`.
+- `runtimeVersion` follows the app version (`"version"` in `app.json`, currently 1.1.0). An update only reaches APKs with the same version.
+  - **Before building a new APK for a native change, raise `version`** (1.1.0 → 1.2.0) **and set `extra.release` to the same number.**
   - The *fingerprint* policy would do this automatically, but its hash differs between Windows and EAS's Linux builders, and the build stops with "Runtime version mismatch".
-- The first APK with `expo-updates` has to be installed by hand once.
 
 ## Tests and checks
 

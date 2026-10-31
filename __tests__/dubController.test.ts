@@ -3,7 +3,7 @@ import { Clip, DubVoice } from "../services/voices";
 import { Cue } from "../types";
 
 /** A voice whose clips finish only when the test says so. */
-function fakeVoice(readyKeys: "all" | string[] = "all") {
+function fakeVoice(readyKeys: "all" | string[] = "all", failing = false) {
   const played: string[] = []; let finish: (() => void) | null = null;
   const generate: Record<string, () => void> = {};
   const ready = new Set(readyKeys === "all" ? [] : readyKeys);
@@ -13,7 +13,7 @@ function fakeVoice(readyKeys: "all" | string[] = "all") {
     prepare: (key, text, rate) => readyKeys === "all" || ready.has(key)
       ? Promise.resolve({ key, text, rate })
       : new Promise<Clip>(resolve => { generate[key] = () => { ready.add(key); resolve({ key, text, rate }); }; }),
-    play: clip => new Promise<void>(resolve => { played.push(clip.text); finish = resolve; }),
+    play: clip => failing ? Promise.reject(new Error("tts")) : new Promise<void>(resolve => { played.push(clip.text); finish = resolve; }),
     stop: () => { finish?.(); finish = null; },
     dispose: () => undefined,
   };
@@ -24,11 +24,14 @@ const cues: Cue[] = [
   { start: 1, end: 3, original: "a", turkish: "Birinci cümle." },
   { start: 3, end: 5, original: "b", turkish: "İkinci cümle." },
   { start: 10, end: 12, original: "c", turkish: "Üçüncü cümle." },
+  { start: 14, end: 16, original: "music", turkish: "[Müzik]" },
+  { start: 16, end: 18, original: "d", turkish: "[Müzik] Dördüncü cümle." },
 ];
-function setup(readyKeys: "all" | string[] = "all", enabled = true) {
-  const fake = fakeVoice(readyKeys); const video = { pause: jest.fn(), resume: jest.fn() }; const views: DubView[] = [];
-  const controller = new DubController(cues, fake.voice, video, view => views.push(view), enabled, 1);
-  return { ...fake, video, views, controller, last: () => views.at(-1) };
+function setup(readyKeys: "all" | string[] = "all", enabled = true, failing = false) {
+  const fake = fakeVoice(readyKeys, failing); const video = { pause: jest.fn(), resume: jest.fn() }; const views: DubView[] = [];
+  const onVoiceFailed = jest.fn();
+  const controller = new DubController(cues, fake.voice, video, view => views.push(view), enabled, 1, onVoiceFailed);
+  return { ...fake, video, views, controller, onVoiceFailed, last: () => views.at(-1) };
 }
 
 test("speaks each cue when it starts", async () => {
@@ -39,10 +42,21 @@ test("speaks each cue when it starts", async () => {
   controller.tick(3.1); await flush(); expect(played).toEqual(["Birinci cümle.", "İkinci cümle."]);
 });
 
-test("pauses the video while the previous sentence is still spoken, then resumes", async () => {
+test("lets the voice run a little behind without pausing", async () => {
+  const { controller, played, finishClip, video } = setup();
+  controller.tick(1); await flush();
+  controller.tick(3.2); await flush(); // next cue starts while the first is still spoken
+  controller.tick(4.0); await flush();
+  expect(video.pause).not.toHaveBeenCalled();
+  finishClip(); await flush();
+  expect(played).toEqual(["Birinci cümle.", "İkinci cümle."]);
+});
+
+test("pauses the video when the voice falls too far behind, then resumes", async () => {
   const { controller, played, finishClip, video, last } = setup();
   controller.tick(1); await flush();
   controller.tick(3.2); await flush();
+  controller.tick(4.8); await flush(); // more than 1.5 s behind
   expect(video.pause).toHaveBeenCalledTimes(1);
   expect(last()?.waiting).toBe("voice");
   expect(played).toEqual(["Birinci cümle."]);
@@ -81,4 +95,23 @@ test("pressing pause stops speech and repeats the sentence on play", async () =>
   controller.userPaused();
   controller.tick(1.6); await flush();
   expect(played).toEqual(["Birinci cümle.", "Birinci cümle."]);
+});
+
+test("caption notes like [Müzik] are shown but not spoken", async () => {
+  const { controller, played, finishClip, last } = setup();
+  controller.tick(14.2); await flush();
+  expect(played).toEqual([]); expect(last()).toMatchObject({ index: 3, text: "[Müzik]" });
+  controller.tick(16.1); await flush();
+  expect(played).toEqual(["Dördüncü cümle."]);
+  finishClip();
+});
+
+test("after repeated voice failures it tells the screen and continues with subtitles only", async () => {
+  const { controller, onVoiceFailed, last } = setup("all", true, true);
+  controller.tick(1.1); await flush();
+  expect(onVoiceFailed).not.toHaveBeenCalled();
+  controller.tick(3.1); await flush();
+  expect(onVoiceFailed).toHaveBeenCalledTimes(1);
+  controller.tick(10.2); await flush();
+  expect(last()).toMatchObject({ index: 2, text: "Üçüncü cümle.", waiting: null });
 });
