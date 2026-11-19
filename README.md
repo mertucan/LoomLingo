@@ -51,7 +51,15 @@ link ─► local history (cache) ─► YouTube captions ─► Gemini text tra
 7. **Adımlar (steps).** A numbered list of what the video shows ("Masurayı masura kapağına takın"), made by one Gemini text request from the translation and saved with the video ([services/assistant.ts](services/assistant.ts)). Tapping a step plays the video from that moment.
 8. **Soru sor (ask).** The user taps the microphone and asks, for example, "Gerginliği kaç numaraya ayarladı?". The recording (AAC) and the translation go to Gemini in one request. The answer is shown, read aloud, and can jump to the moment it refers to. If the video does not cover it, Gemini says so before giving general advice. Typing a question also works.
    - Tested with a spoken Turkish question on a Hindi overlock video: correct transcription and answer in about 5 seconds.
-9. **Errors.** Every failure is shown in plain Turkish with a **Tekrar Dene** (retry) button. Failures covered: no internet, invalid link, video missing or not accessible, invalid or missing key, daily limit reached, and service busy. When a problem keeps happening, **Sorun bildir** (on the error card and in Settings) opens an e-mail with the app version, phone model and the last 25 logged events ([services/log.ts](services/log.ts)). The user only has to press send. The address comes from `EXPO_PUBLIC_SUPPORT_EMAIL` in `.env`.
+9. **Video Ara (search in Turkish)** ([services/search.ts](services/search.ts)). The user types "overlok iplik takma".
+   - One Gemini request turns it into English and Hindi searches. YouTube is searched in English, Hindi and Turkish; the search code is in [services/transcript.ts](services/transcript.ts) with the rest of the YouTube code.
+   - The results are mixed so every language shows near the top. A second request translates the titles into Turkish.
+   - Tapping a result starts the normal translation. Measured: 15 results in 3–4 seconds for 2 requests.
+10. **Slow motion and resume.**
+   - A "Yavaş" button plays the video at 0.75×; the player re-applies the speed if YouTube resets it. The voice sync follows the video's own clock.
+   - Every video remembers where it was left ([services/positions.ts](services/positions.ts)) and continues from 3 seconds earlier. If it was barely started or nearly finished, it starts over.
+   - Home and History show a red progress bar and "Kaldığı yer: 5:40".
+11. **Errors.** Every failure is shown in plain Turkish with a **Tekrar Dene** (retry) button. Failures covered: no internet, invalid link, video missing or not accessible, invalid or missing key, daily limit reached, and service busy. When a problem keeps happening, **Sorun bildir** (on the error card and in Settings) opens an e-mail with the app version, phone model and the last 25 logged events ([services/log.ts](services/log.ts)). The user only has to press send. The address comes from `EXPO_PUBLIC_SUPPORT_EMAIL` in `.env`.
 
 [services/pipeline.ts](services/pipeline.ts) wires these steps together. [services/gemini.ts](services/gemini.ts) holds the shared Gemini client and the textile-domain system instruction, which also carries the user's glossary.
 
@@ -114,7 +122,7 @@ Planned, not started:
 
 ```
 App.tsx                  screen switching + share-intent handling
-screens/                 HomeScreen, WatchScreen, ResultScreen (reading), StepsScreen, AskScreen, HistoryScreen, SettingsScreen
+screens/                 HomeScreen, SearchScreen, WatchScreen, ResultScreen (reading), StepsScreen, AskScreen, HistoryScreen, SettingsScreen
 components/              YoutubeVideo (player), Button/Tile, Header, VideoCard, ProgressCard, ErrorCard, theme
 hooks/useShareIntent.ts  receives links shared from the YouTube app (APK only)
 services/
@@ -126,7 +134,9 @@ services/
   dubController.ts       keeps the Turkish voice in step with the video (elastic sync)
   assistant.ts           "Adımlar" steps and "Soru sor" answers from the translation
   log.ts                 local event log and the "Sorun bildir" e-mail
-  updates.ts             checks for an over-the-air update at start
+  updates.ts             over-the-air updates, background check and notification
+  search.ts              "Video Ara": Turkish search across English, Hindi and Turkish videos
+  positions.ts           where each video was left
   voices.ts              phone voice + Piper voices (download, generate, play)
   quota.ts               remembers models whose daily quota is used up
   cache.ts               history / cache (AsyncStorage)

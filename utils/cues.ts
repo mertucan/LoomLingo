@@ -1,4 +1,5 @@
 import { Cue, TimestampedParagraph } from "../types";
+import { readMeasurements } from "./speech";
 
 export type CaptionLine = { startMs: number; durationMs: number; text: string };
 const SENTENCE_END = /[.!?。！？।]["')\]]*$/;
@@ -115,8 +116,11 @@ export const MAX_SPEECH_RATE = 1.25;
  * still too long is handled by briefly pausing the video.
  * `charsPerSecond` is the voice's speed at rate 1.0.
  */
-/** What the voice should say: caption notes such as "[Müzik]" or "[anlaşılmadı]" and music signs are left out. */
-export const speakable = (text: string) => text.replace(/\[[^\]]*\]|♪+/g, " ").replace(/\s+/g, " ").trim();
+/**
+ * What the voice should say: caption notes such as "[Müzik]" or "[anlaşılmadı]" and music signs are left out,
+ * and units are written out ("5 mm" is read as "5 milimetre", not "5 meme").
+ */
+export const speakable = (text: string) => readMeasurements(text.replace(/\[[^\]]*\]|♪+/g, " "));
 
 export function planSpeech(cue: Cue, nextStart: number | undefined, baseRate: number, charsPerSecond: number): SpeechPlan {
   const slot = Math.max(0.8, (nextStart ?? cue.end + 1.5) - cue.start);

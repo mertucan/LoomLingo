@@ -8,21 +8,24 @@ import { ProgressCard } from "../components/ProgressCard";
 import { card, colors, font, radius } from "../components/theme";
 import { VideoCard } from "../components/VideoCard";
 import { getHistoryItems } from "../services/cache";
+import { getPositions } from "../services/positions";
 import { logEvent } from "../services/log";
 import { translateVideo } from "../services/pipeline";
 import { quotaUsedUpUntil } from "../services/quota";
 import { TranslationResult, UserFacingError } from "../types";
 import { parseYoutubeLink } from "../utils/youtubeLink";
 
+const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 const confirm = (title: string, message: string) => new Promise<boolean>(resolve =>
   Alert.alert(title, message, [{ text: "Hayır", style: "cancel", onPress: () => resolve(false) }, { text: "Evet", onPress: () => resolve(true) }], { cancelable: true, onDismiss: () => resolve(false) }));
 
-type Props = { newRelease: string | null; onInstallUpdate: () => void; sharedText: string | null; onSharedTextHandled: () => void; onResult: (r: TranslationResult) => void; onHistory: () => void; onSettings: () => void };
-export function HomeScreen({ newRelease, onInstallUpdate, sharedText, onSharedTextHandled, onResult, onHistory, onSettings }: Props) {
+type Props = { onSearch: () => void; newRelease: string | null; onInstallUpdate: () => void; sharedText: string | null; onSharedTextHandled: () => void; onResult: (r: TranslationResult) => void; onHistory: () => void; onSettings: () => void };
+export function HomeScreen({ onSearch, newRelease, onInstallUpdate, sharedText, onSharedTextHandled, onResult, onHistory, onSettings }: Props) {
   const [link, setLink] = useState(""); const [progress, setProgress] = useState<string | null>(null); const [error, setError] = useState<string | null>(null);
   const [usedUpUntil, setUsedUpUntil] = useState<string | null>(null); const [last, setLast] = useState<TranslationResult | null>(null);
+  const [lastPosition, setLastPosition] = useState(0);
   const busy = useRef(false);
-  const refresh = useCallback(() => { void quotaUsedUpUntil().then(setUsedUpUntil).catch(() => undefined); void getHistoryItems().then(items => setLast(items[0] ?? null)).catch(() => undefined); }, []);
+  const refresh = useCallback(() => { void quotaUsedUpUntil().then(setUsedUpUntil).catch(() => undefined); void getHistoryItems().then(async items => { const item = items[0] ?? null; setLast(item); setLastPosition(item ? (await getPositions())[item.videoId] ?? 0 : 0); }).catch(() => undefined); }, []);
   useEffect(refresh, [refresh]);
 
   const begin = useCallback(async (raw: string) => {
@@ -53,12 +56,13 @@ export function HomeScreen({ newRelease, onInstallUpdate, sharedText, onSharedTe
     </Pressable>}
     <Button size="large" icon="clipboard-outline" label="Linki Yapıştır ve Başla" onPress={() => void pasteAndStart()} disabled={!!progress} />
     <Text style={styles.hint}>YouTube'da Paylaş → Bağlantıyı kopyala, sonra bu butona basın.</Text>
+    <Button icon="search" label="Video Ara" kind="secondary" onPress={onSearch} disabled={!!progress} />
 
     {progress && <ProgressCard message={progress} />}
     {error && !progress && <ErrorCard message={error} onRetry={() => void begin(link)} reportable />}
     {usedUpUntil && !progress && !error && <ErrorCard tone="warning" message={`Bugünkü çeviri hakkı doldu, ${usedUpUntil} yenilenir. Geçmişteki videolar izlenebilir.`} />}
 
-    {last && !progress && <><Text style={styles.section}>Son video</Text><VideoCard item={last} detail={`${last.sourceLanguage} · Türkçe`} onPress={() => onResult(last)} /></>}
+    {last && !progress && <><Text style={styles.section}>Son video</Text><VideoCard item={last} progress={last.lengthSeconds ? lastPosition / last.lengthSeconds : 0} detail={lastPosition >= 10 ? `Kaldığı yer: ${clock(lastPosition)}` : `${last.sourceLanguage} · Türkçe`} onPress={() => onResult(last)} /></>}
 
     <Text style={styles.section}>Ya da linki yazın</Text>
     <View style={styles.linkRow}>

@@ -6,19 +6,21 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { colors, font } from "./components/theme";
 import { useShareIntent } from "./hooks/useShareIntent";
 import { removeCached } from "./services/cache";
+import { getPositions, resumeFrom } from "./services/positions";
 import { installCrashLogging } from "./services/log";
 import { findNewRelease, installNewRelease, setUpUpdates } from "./services/updates";
 import { AskScreen } from "./screens/AskScreen";
 import { HomeScreen } from "./screens/HomeScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { ResultScreen } from "./screens/ResultScreen";
+import { SearchScreen } from "./screens/SearchScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { StepsScreen } from "./screens/StepsScreen";
 import { WatchScreen } from "./screens/WatchScreen";
 import { TranslationResult } from "./types";
 
 installCrashLogging();
-type Page = "home" | "history" | "settings" | "watch" | "read" | "steps" | "ask";
+type Page = "home" | "history" | "settings" | "search" | "watch" | "read" | "steps" | "ask";
 /** Pages reached from the watch screen go back to it; everything else goes back to Home. */
 const WATCH_CHILDREN: Page[] = ["read", "steps", "ask"];
 
@@ -27,7 +29,14 @@ export default function App() {
   const [sharedText, setSharedText] = useState<string | null>(null);
   const [startAt, setStartAt] = useState(0); const [updating, setUpdating] = useState(false);
   const [newRelease, setNewRelease] = useState<string | null>(null);
-  const watch = (item: TranslationResult) => { setResult(item); setStartAt(0); setPage("watch"); };
+  /** Opens a video where it was left last time. */
+  const watch = (item: TranslationResult) => {
+    void getPositions().catch(() => ({} as Record<string, number>)).then(positions => {
+      setResult(item); setStartAt(resumeFrom(positions[item.videoId], item.lengthSeconds)); setPage("watch");
+    });
+  };
+  /** A video picked from search results goes through the normal translate flow on Home. */
+  const translateFound = (url: string) => { setSharedText(url); setPage("home"); };
   const home = () => setPage("home");
   const leaveWatch = (target: Page) => (time: number) => { setStartAt(time); setPage(target); };
   const playFrom = (seconds: number) => { setStartAt(seconds); setPage("watch"); };
@@ -61,7 +70,8 @@ export default function App() {
 
   if (updating) return <View style={styles.updating}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.updatingText}>Uygulama güncelleniyor…</Text></View>;
   return <SafeAreaProvider><SafeAreaView style={styles.safe}><StatusBar style="dark" />
-    {page === "home" && <HomeScreen newRelease={newRelease} onInstallUpdate={installUpdate} sharedText={sharedText} onSharedTextHandled={() => setSharedText(null)} onResult={watch} onHistory={() => setPage("history")} onSettings={() => setPage("settings")} />}
+    {page === "home" && <HomeScreen newRelease={newRelease} onInstallUpdate={installUpdate} sharedText={sharedText} onSharedTextHandled={() => setSharedText(null)} onResult={watch} onHistory={() => setPage("history")} onSettings={() => setPage("settings")} onSearch={() => setPage("search")} />}
+    {page === "search" && <SearchScreen onBack={home} onPick={translateFound} />}
     {page === "history" && <HistoryScreen onOpen={watch} onBack={home} />}
     {page === "settings" && <SettingsScreen onBack={home} />}
     {page === "watch" && result && <WatchScreen result={result} startAt={startAt} onBack={home} onRead={leaveWatch("read")} onSteps={leaveWatch("steps")} onAsk={leaveWatch("ask")} onRetranslate={() => retranslate(result)} />}

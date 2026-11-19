@@ -13,6 +13,7 @@ import { geminiOptions } from "../services/pipeline";
 import { getSettings } from "../services/settings";
 import { createVoice, DubVoice } from "../services/voices";
 import { TranslationResult, UserFacingError } from "../types";
+import { readMeasurements } from "../utils/speech";
 
 /** Mono AAC in an ADTS stream ("audio/aac"), a format Gemini accepts directly. */
 const RECORDING: RecordingOptions = { ...RecordingPresets.LOW_QUALITY, extension: ".aac", numberOfChannels: 1, android: { outputFormat: "aac_adts", audioEncoder: "aac" } };
@@ -37,7 +38,8 @@ export function AskScreen({ result, onBack, onPlayFrom }: { result: TranslationR
   const speak = async (text: string) => {
     const v = voice.current; if (!v) return;
     v.stop(); const settings = await getSettings();
-    await v.play(await v.prepare(`answer-${text.length}-${text.slice(0, 20)}`, text, settings.speechRate)).catch(() => undefined);
+    const spoken = readMeasurements(text);
+    await v.play(await v.prepare(`answer-${spoken.length}-${spoken.slice(0, 20)}`, spoken, settings.speechRate)).catch(() => undefined);
   };
   const ask = async (question: Question) => {
     setBusy(true); setError(null); setAnswer(null); voice.current?.stop();

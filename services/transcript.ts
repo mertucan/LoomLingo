@@ -96,3 +96,39 @@ export async function getCaptionTranscript(info: VideoInfo): Promise<CaptionTran
   const cues = groupCaptionLines(lines);
   return cues.length ? { languageCode: track.languageCode, automatic: track.automatic, cues } : null;
 }
+
+// ---------- Search (YouTube's own web search endpoint, also unofficial) ----------
+
+const SEARCH_URL = "https://www.youtube.com/youtubei/v1/search?prettyPrint=false";
+const WEB_CLIENT = { clientName: "WEB", clientVersion: "2.20250101.00.00", hl: "en", gl: "IN" };
+export type SearchResult = { videoId: string; title: string; channel: string; lengthText: string; lengthSeconds: number };
+
+const toSeconds = (text: string) => text.split(":").map(Number).reduce((total, part) => total * 60 + (Number.isFinite(part) ? part : 0), 0);
+type Runs = { runs?: Array<{ text?: string }>; simpleText?: string };
+const textOf = (value?: Runs) => value?.simpleText ?? value?.runs?.map(r => r.text ?? "").join("") ?? "";
+
+/** Collects normal videos (no live streams, no Shorts under a minute) from a search response, in page order. */
+export function parseSearchResults(data: unknown): SearchResult[] {
+  const results: SearchResult[] = []; const seen = new Set<string>();
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { node.forEach(visit); return; }
+    const renderer = (node as { videoRenderer?: { videoId?: string; title?: Runs; ownerText?: Runs; lengthText?: Runs } }).videoRenderer;
+    if (renderer?.videoId && !seen.has(renderer.videoId)) {
+      const lengthText = textOf(renderer.lengthText);
+      if (lengthText && toSeconds(lengthText) >= 60) {
+        seen.add(renderer.videoId);
+        results.push({ videoId: renderer.videoId, title: textOf(renderer.title), channel: textOf(renderer.ownerText), lengthText, lengthSeconds: toSeconds(lengthText) });
+      }
+    }
+    for (const value of Object.values(node)) visit(value);
+  };
+  visit(data);
+  return results;
+}
+
+export async function searchYoutube(query: string): Promise<SearchResult[]> {
+  const response = await request(SEARCH_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ context: { client: WEB_CLIENT }, query }) });
+  if (!response.ok) return [];
+  try { return parseSearchResults(await response.json()); } catch { return []; }
+}

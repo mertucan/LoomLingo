@@ -3,7 +3,7 @@ import { StyleSheet } from "react-native";
 import WebView, { WebViewMessageEvent } from "react-native-webview";
 
 export type VideoStatus = { time: number; paused: boolean; ended: boolean; ad: boolean };
-export type YoutubeVideoHandle = { play: () => void; pause: () => void; seekTo: (seconds: number) => void; setMuted: (muted: boolean) => void };
+export type YoutubeVideoHandle = { play: () => void; pause: () => void; seekTo: (seconds: number) => void; setMuted: (muted: boolean) => void; setRate: (rate: number) => void };
 type Props = { videoId: string; width: number; height: number; muted: boolean; startSeconds?: number; onStatus: (status: VideoStatus) => void; onError: () => void };
 
 /**
@@ -17,7 +17,7 @@ type Props = { videoId: string; width: number; height: number; muted: boolean; s
 const REFERER = "https://com.loomlingo.app/";
 const script = (muted: boolean) => `(function () {
   if (window.__ll) return true;
-  window.__llMuted = ${muted};
+  window.__llMuted = ${muted}; window.__llRate = 1;
   var post = function (m) { window.ReactNativeWebView.postMessage(JSON.stringify(m)); };
   var video = function () { return document.querySelector("video"); };
   var hush = function () { var v = video(); if (v && window.__llMuted && !v.muted) v.muted = true; };
@@ -27,6 +27,7 @@ const script = (muted: boolean) => `(function () {
     if (cmd === "pause") v.pause();
     if (cmd === "seek") v.currentTime = arg;
     if (cmd === "mute") { window.__llMuted = arg; v.muted = arg; }
+    if (cmd === "rate") { window.__llRate = arg; v.playbackRate = arg; }
   };
   var last = "";
   setInterval(function () {
@@ -35,6 +36,7 @@ const script = (muted: boolean) => `(function () {
     var v = video(); if (!v) return;
     if (!v.__llHooked) { v.__llHooked = true; v.addEventListener("volumechange", hush); v.addEventListener("play", hush); }
     hush();
+    if (v.playbackRate !== window.__llRate) v.playbackRate = window.__llRate;
     var player = document.querySelector(".html5-video-player");
     var status = { type: "status", time: v.currentTime, paused: v.paused, ended: v.ended, ad: !!(player && player.classList.contains("ad-showing")) };
     var key = [status.paused, status.ended, status.ad].join();
@@ -50,7 +52,7 @@ export const YoutubeVideo = forwardRef<YoutubeVideoHandle, Props>(function Youtu
   const run = (command: string) => web.current?.injectJavaScript(`window.__ll && window.__ll(${command}); true;`);
   useImperativeHandle(ref, () => ({
     play: () => run(`"play"`), pause: () => run(`"pause"`),
-    seekTo: seconds => run(`"seek", ${Math.max(0, seconds)}`), setMuted: on => run(`"mute", ${on}`),
+    seekTo: seconds => run(`"seek", ${Math.max(0, seconds)}`), setMuted: on => run(`"mute", ${on}`), setRate: rate => run(`"rate", ${rate}`),
   }), []);
   const onMessage = (event: WebViewMessageEvent) => {
     try {

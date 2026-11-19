@@ -5,10 +5,14 @@ import { Header } from "../components/Header";
 import { colors, font } from "../components/theme";
 import { VideoCard } from "../components/VideoCard";
 import { clearCache, getHistoryItems, removeCached } from "../services/cache";
+import { getPositions } from "../services/positions";
 import { TranslationResult } from "../types";
 
+const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+
 export function HistoryScreen({ onOpen, onBack }: { onOpen: (item: TranslationResult) => void; onBack: () => void }) {
-  const [items, setItems] = useState<TranslationResult[]>([]); const load = useCallback(() => void getHistoryItems().then(setItems), []); useEffect(load, [load]);
+  const [items, setItems] = useState<TranslationResult[]>([]); const [positions, setPositions] = useState<Record<string, number>>({});
+  const load = useCallback(() => { void getHistoryItems().then(setItems); void getPositions().then(p => setPositions({ ...p })); }, []); useEffect(load, [load]);
   const erase = (id: string) => Alert.alert("Silinsin mi?", "Bu video geçmişten kaldırılır.", [{ text: "Vazgeç", style: "cancel" }, { text: "Sil", style: "destructive", onPress: () => void removeCached(id).then(load) }]);
   const eraseAll = () => Alert.alert("Tümü silinsin mi?", "Bütün çeviriler telefondan kaldırılır.", [{ text: "Vazgeç", style: "cancel" }, { text: "Tümünü Sil", style: "destructive", onPress: () => void clearCache().then(load) }]);
   return <View style={styles.page}>
@@ -16,7 +20,8 @@ export function HistoryScreen({ onOpen, onBack }: { onOpen: (item: TranslationRe
     <FlatList contentContainerStyle={styles.list} data={items} keyExtractor={x => x.videoId}
       ListHeaderComponent={items.length ? <Text style={styles.help}>İnternetsiz ve hak harcamadan izlenir.</Text> : null}
       ListEmptyComponent={<Text style={styles.empty}>Henüz çevrilmiş video yok.</Text>}
-      renderItem={({ item }) => <VideoCard item={item} detail={`${new Date(item.createdAt).toLocaleDateString("tr-TR")} · ${item.sourceLanguage}`} onPress={() => onOpen(item)} onDelete={() => erase(item.videoId)} />}
+      renderItem={({ item }) => <VideoCard item={item} progress={item.lengthSeconds ? (positions[item.videoId] ?? 0) / item.lengthSeconds : 0}
+        detail={(positions[item.videoId] ?? 0) >= 10 ? `Kaldığı yer: ${clock(positions[item.videoId] ?? 0)}` : `${new Date(item.createdAt).toLocaleDateString("tr-TR")} · ${item.sourceLanguage}`} onPress={() => onOpen(item)} onDelete={() => erase(item.videoId)} />}
       ListFooterComponent={items.length > 1 ? <Button icon="trash-outline" label="Tümünü Sil" kind="danger" onPress={eraseAll} /> : null} />
   </View>;
 }

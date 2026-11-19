@@ -11,6 +11,7 @@ import { colors, font } from "../components/theme";
 import { VideoStatus, YoutubeVideo, YoutubeVideoHandle } from "../components/YoutubeVideo";
 import { DubController, DubView } from "../services/dubController";
 import { logEvent } from "../services/log";
+import { savePosition } from "../services/positions";
 import { getSettings, saveSettings } from "../services/settings";
 import { createVoice, DubVoice, hasTurkishDeviceVoice } from "../services/voices";
 import { Settings, TranslationResult } from "../types";
@@ -67,14 +68,24 @@ export function WatchScreen({ result, startAt, onBack, onRead, onSteps, onAsk, o
    * The player reports its state four times a second while playing. The player is the truth: a tap
    * on the video plays or pauses it, and pauses made by the voice sync (controller.waiting) are ignored.
    */
+  const lastSaved = useRef(0);
   const onStatus = useCallback((status: VideoStatus) => {
     setAd(status.ad);
     if (status.ad) return;
     lastTime.current = status.time;
+    // Remember where the video is, every few seconds and at the end ("kaldığı yerden devam").
+    if (status.ended) void savePosition(result.videoId, 0);
+    else if (Math.abs(status.time - lastSaved.current) >= 5) { lastSaved.current = status.time; void savePosition(result.videoId, status.time); }
     const c = controller.current;
     if (!status.paused && !status.ended) { wasPlaying.current = true; c?.tick(status.time); }
     else if (wasPlaying.current && !c?.waiting) { wasPlaying.current = false; c?.userPaused(); }
-  }, []);
+  }, [result.videoId]);
+  // Also when leaving the screen.
+  useEffect(() => () => { if (lastTime.current > 0) void savePosition(result.videoId, lastTime.current); }, [result.videoId]);
+
+  /** Slower playback for fast hands; the voice sync follows the video's own clock. */
+  const [slow, setSlow] = useState(false);
+  const toggleSlow = () => { const next = !slow; setSlow(next); video.current?.setRate(next ? 0.75 : 1); };
 
   const setBigScreen = useCallback((on: boolean) => {
     setBig(on);
@@ -132,7 +143,11 @@ export function WatchScreen({ result, startAt, onBack, onRead, onSteps, onAsk, o
           <Tile icon={voiceOn ? "volume-high" : "volume-mute-outline"} label={voiceOn ? "Türkçe ses açık" : "Türkçe ses kapalı"} active={voiceOn} onPress={toggleDubbing} />
           <Tile icon="expand-outline" label="Büyük ekran" onPress={() => setBigScreen(true)} />
         </Row>
-        <Row><Button flex icon="remove" label="Yazı" kind="secondary" onPress={() => fontStep(-0.1)} /><Button flex icon="add" label="Yazı" kind="secondary" onPress={() => fontStep(0.1)} /></Row>
+        <Row>
+          <Button flex icon="remove" label="Yazı" kind="secondary" onPress={() => fontStep(-0.1)} />
+          <Button flex icon="add" label="Yazı" kind="secondary" onPress={() => fontStep(0.1)} />
+          <Button flex icon="speedometer-outline" label={slow ? "Yavaş" : "Normal"} kind={slow ? "primary" : "secondary"} onPress={toggleSlow} />
+        </Row>
         <Row>
           <Tile icon="document-text-outline" label="Metni oku" onPress={() => onRead(lastTime.current)} />
           <Tile icon="list-outline" label="Adımlar" onPress={() => onSteps(lastTime.current)} />

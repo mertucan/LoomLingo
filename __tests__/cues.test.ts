@@ -89,3 +89,7 @@ test("the voice leaves out caption notes and stays silent when nothing is left",
   expect(planSpeech(cue(0, 4, "[Müzik]"), 5, 1, 14).text).toBe("");
   expect(planSpeech(cue(0, 4, "♪♪ [anlaşılmadı]"), 5, 1, 14).text).toBe("");
 });
+
+test("the voice reads units as words", () => {
+  expect(planSpeech(cue(0, 6, "Sıklığı 2,5 mm yapın."), 7, 1, 14).text).toBe("Sıklığı 2,5 milimetre yapın.");
+});
