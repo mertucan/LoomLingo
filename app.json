@@ -59,7 +59,7 @@
       "eas": {
         "projectId": "4cc54627-093d-4a7f-bd5f-8e47592e92c6"
       },
-      "release": "1.1.3"
+      "release": "1.1.4"
     },
     "icon": "./assets/icon.png",
     "runtimeVersion": {

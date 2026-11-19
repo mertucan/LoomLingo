@@ -1,5 +1,6 @@
 // Publishes an over-the-air update: raises the release label in app.json
-// (1.1.0 -> 1.1.1), then runs `eas update` on the "preview" channel.
+// (1.1.0 -> 1.1.1), then runs `eas update` on the "preview" channel, Android only
+// (the iOS step is not needed and can hang on Windows).
 // Usage: npm run update -- "What changed"
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -25,8 +26,9 @@ const release = `${major}.${minor}.${(patch || 0) + 1}`;
 config.expo.extra.release = release;
 writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
 console.log(`Publishing v${release} (runtime ${config.expo.version}): ${message}`);
+console.log("Bundling for Android takes a few minutes; long pauses are normal.");
 try {
-  execSync(`npx eas-cli@latest update --channel preview --environment preview --clear-cache --non-interactive --message ${JSON.stringify(`v${release}: ${message}`)}`,
+  execSync(`npx --yes eas-cli@latest update --platform android --channel preview --environment preview --clear-cache --non-interactive --message ${JSON.stringify(`v${release}: ${message}`)}`,
     { stdio: "inherit", env: { ...process.env, ...dotenv } });
   console.log(`\nv${release} published. Phones get a "Loom Lingo v${release} hazır" notification within about an hour, or see it at the next start.`);
 } catch {
